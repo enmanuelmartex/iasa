@@ -142,6 +142,12 @@ export interface Finding {
 export interface Report {
   id: string;
   assessmentId: string;
+  assessment?: {
+    id: string;
+    project: { id: string; name: string };
+    summary?: AssessmentSummary;
+    findings?: Finding[];
+  };
   type: 'EXECUTIVE' | 'TECHNICAL' | 'COMPLIANCE' | 'DEVELOPER';
   format: 'PDF' | 'HTML' | 'MARKDOWN' | 'JSON' | 'SARIF';
   title: string;
@@ -149,6 +155,30 @@ export interface Report {
   fileSize?: number;
   checksum?: string;
   generatedAt: string;
+}
+
+export interface ReportTrendPoint {
+  date: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  total: number;
+  score: number;
+}
+
+export interface ReportStats {
+  totalReports: number;
+  totalAssessments: number;
+  totalProjects: number;
+  totalFindings: number;
+  criticalCount: number;
+  highCount: number;
+  mediumCount: number;
+  lowCount: number;
+  avgSecurityScore: number;
+  avgDuration: number;
+  trend: ReportTrendPoint[];
 }
 
 export interface AssessmentLog {

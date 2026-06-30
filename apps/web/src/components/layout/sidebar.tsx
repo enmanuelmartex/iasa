@@ -31,6 +31,12 @@ const navItems = [
       { href: '/reports', icon: FileText, label: 'Reports' },
     ],
   },
+  {
+    label: 'System',
+    items: [
+      { href: '/settings', icon: Settings, label: 'Settings' },
+    ],
+  },
 ];
 
 interface SidebarProps {

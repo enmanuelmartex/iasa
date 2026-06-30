@@ -93,8 +93,15 @@ export const findingsApi = {
 
 // Reports
 export const reportsApi = {
-  list: (assessmentId: string) =>
+  stats: () => api.get('/reports/stats').then((r) => r.data),
+  list: (assessmentId?: string) =>
+    api
+      .get('/reports', { params: assessmentId ? { assessmentId } : {} })
+      .then((r) => r.data),
+  listByAssessment: (assessmentId: string) =>
     api.get(`/reports/assessment/${assessmentId}`).then((r) => r.data),
+  get: (id: string) => api.get(`/reports/${id}`).then((r) => r.data),
+  delete: (id: string) => api.delete(`/reports/${id}`).then((r) => r.data),
   generate: (
     assessmentId: string,
     format: 'JSON' | 'HTML' | 'MARKDOWN' | 'SARIF',
