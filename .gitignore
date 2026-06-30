@@ -1,0 +1,87 @@
+# =============================================================================
+# IASA — .gitignore
+# =============================================================================
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Dependencies
+node_modules/
+.bun/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# TypeScript
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Prisma
+apps/api/prisma/migrations/*.sql.bak
+
+# Reports (user-generated)
+reports/
+*.pdf
+*.sarif
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-debug.log*
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Testing
+coverage/
+.nyc_output/
+
+# Docker
+.dockerignore
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Uploads
+uploads/
+
+# Secrets
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# Cache
+.eslintcache
+.tsbuildinfo
+.parcel-cache

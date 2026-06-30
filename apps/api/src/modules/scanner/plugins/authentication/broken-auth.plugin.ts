@@ -1,0 +1,136 @@
+import axios from 'axios';
+import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+
+export class BrokenAuthPlugin extends BasePlugin {
+  readonly id = 'broken-authentication';
+  readonly name = 'Broken Authentication';
+  readonly description = 'Tests for API2:2023 - Broken Authentication vulnerabilities';
+  readonly owaspCategories = ['API2:2023'];
+
+  async run(context: ScanContext): Promise<PluginResult> {
+    const start = Date.now();
+    const findings: ScanFinding[] = [];
+    let tested = 0;
+
+    const authHeaders = this.getAuthHeaders(context.auth);
+    const testEndpoints = context.endpoints
+      .filter((e) => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(e.method))
+      .slice(0, 15);
+
+    for (const endpoint of testEndpoints) {
+      if (endpoint.deprecated) continue;
+
+      const url = this.buildUrl(context.baseUrl, this.fillPathParams(endpoint.path));
+      tested++;
+
+      // Test 1: No authentication
+      try {
+        const resp = await axios.request({
+          method: endpoint.method as any,
+          url,
+          headers: { 'User-Agent': 'IASA-Scanner/1.0', 'Accept': 'application/json' },
+          timeout: context.config.timeoutMs,
+          validateStatus: () => true,
+        });
+
+        if (resp.status < 400) {
+          findings.push({
+            title: 'Endpoint Accessible Without Authentication',
+            category: 'Broken Authentication',
+            severity: endpoint.method !== 'GET' ? 'HIGH' : 'MEDIUM',
+            cvssScore: endpoint.method !== 'GET' ? 7.5 : 5.3,
+            owaspCategory: 'API2:2023',
+            cweId: 'CWE-306',
+            pluginId: this.id,
+            endpointId: endpoint.id,
+            affectedUrl: `${endpoint.method} ${url}`,
+            description: `The endpoint ${endpoint.method} ${endpoint.path} returns a ${resp.status} response without any authentication credentials. This means the endpoint is publicly accessible and may expose sensitive data or functionality.`,
+            impact: 'Unauthenticated users can access protected resources, potentially exposing sensitive data, performing unauthorized actions, or enumerating internal data.',
+            likelihood: endpoint.method !== 'GET' ? 'HIGH' : 'MEDIUM',
+            riskScore: endpoint.method !== 'GET' ? 7.5 : 5.3,
+            evidence: {
+              requestMethod: endpoint.method,
+              requestUrl: url,
+              responseStatus: resp.status,
+              authUsed: 'None',
+            },
+            httpRequest: this.buildRequestString(
+              endpoint.method,
+              url,
+              { 'User-Agent': 'IASA-Scanner/1.0', Accept: 'application/json' },
+            ),
+            httpResponse: this.buildResponseString(
+              resp.status,
+              resp.headers as any,
+              typeof resp.data === 'object' ? JSON.stringify(resp.data).substring(0, 500) : String(resp.data).substring(0, 500),
+            ),
+            remediation: 'Implement authentication middleware that validates credentials before processing requests. Use JWT, OAuth2, or API Keys consistently across all protected endpoints. Return 401 for missing credentials and 403 for insufficient permissions.',
+            references: [
+              'https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/',
+              'https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html',
+            ],
+          });
+        }
+      } catch (_) {}
+
+      // Test 2: Invalid/Malformed token
+      if (context.auth.type === 'BEARER') {
+        try {
+          const resp = await axios.request({
+            method: endpoint.method as any,
+            url,
+            headers: {
+              'Authorization': 'Bearer invalid.token.here',
+              'User-Agent': 'IASA-Scanner/1.0',
+              'Accept': 'application/json',
+            },
+            timeout: context.config.timeoutMs,
+            validateStatus: () => true,
+          });
+
+          if (resp.status < 400) {
+            findings.push({
+              title: 'Endpoint Accepts Invalid Authentication Token',
+              category: 'Broken Authentication',
+              severity: 'CRITICAL',
+              cvssScore: 9.1,
+              owaspCategory: 'API2:2023',
+              cweId: 'CWE-287',
+              pluginId: this.id,
+              endpointId: endpoint.id,
+              affectedUrl: `${endpoint.method} ${url}`,
+              description: `The endpoint ${endpoint.method} ${endpoint.path} returned ${resp.status} when called with a clearly malformed JWT token (invalid.token.here). This indicates the server is not properly validating authentication tokens.`,
+              impact: 'Attackers can bypass authentication by crafting malformed tokens, gaining unauthorized access to the API.',
+              likelihood: 'HIGH',
+              riskScore: 9.1,
+              evidence: {
+                tokenUsed: 'invalid.token.here',
+                responseStatus: resp.status,
+              },
+              httpRequest: this.buildRequestString(endpoint.method, url, {
+                Authorization: 'Bearer invalid.token.here',
+                'User-Agent': 'IASA-Scanner/1.0',
+              }),
+              httpResponse: this.buildResponseString(resp.status, resp.headers as any, null),
+              remediation: 'Implement strict JWT/token validation including signature verification, expiration checks, and issuer validation. Reject all malformed or invalid tokens with a 401 response.',
+              references: [
+                'https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/',
+                'https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html',
+              ],
+            });
+          }
+        } catch (_) {}
+      }
+
+      await this.delay(context.config.requestDelayMs);
+    }
+
+    return {
+      pluginId: this.id,
+      pluginName: this.name,
+      findings,
+      scanDuration: Date.now() - start,
+      endpointsTested: tested,
+    };
+  }
+}

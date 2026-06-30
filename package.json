@@ -1,0 +1,38 @@
+{
+  "name": "iasa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Intelligent API Security Assessment — Automated API security testing and vulnerability detection platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --names \"API,WEB\" --prefix-colors \"cyan,magenta\" \"bun run dev:api\" \"bun run dev:web\"",
+    "dev:api": "bun run --cwd apps/api dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "build": "bun run build:api && bun run build:web",
+    "build:api": "bun run --cwd apps/api build",
+    "build:web": "bun run --cwd apps/web build",
+    "start": "concurrently --names \"API,WEB\" \"bun run start:api\" \"bun run start:web\"",
+    "start:api": "bun run --cwd apps/api start:prod",
+    "start:web": "bun run --cwd apps/web start",
+    "db:push": "bun run --cwd apps/api db:push",
+    "db:migrate": "bun run --cwd apps/api db:migrate",
+    "db:migrate:prod": "bun run --cwd apps/api db:migrate:prod",
+    "db:studio": "bun run --cwd apps/api db:studio",
+    "db:seed": "bun run --cwd apps/api db:seed",
+    "db:reset": "bun run --cwd apps/api db:reset",
+    "lint": "bun run lint:api && bun run lint:web",
+    "lint:api": "bun run --cwd apps/api lint",
+    "lint:web": "bun run --cwd apps/web lint",
+    "test": "bun run test:api",
+    "test:api": "bun run --cwd apps/api test",
+    "test:e2e": "bun run --cwd apps/api test:e2e",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "prettier": "^3.3.3"
+  }
+}

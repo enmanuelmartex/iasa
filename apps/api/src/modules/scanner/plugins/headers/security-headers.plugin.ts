@@ -1,0 +1,200 @@
+import axios from 'axios';
+import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+
+interface HeaderCheck {
+  header: string;
+  required: boolean;
+  severity: ScanFinding['severity'];
+  cvssScore: number;
+  description: string;
+  remediation: string;
+  badValues?: string[];
+  goodExample?: string;
+}
+
+export class SecurityHeadersPlugin extends BasePlugin {
+  readonly id = 'security-headers';
+  readonly name = 'Security Headers';
+  readonly description = 'Tests for API8:2023 - Security Misconfiguration (HTTP Security Headers)';
+  readonly owaspCategories = ['API8:2023'];
+
+  private readonly checks: HeaderCheck[] = [
+    {
+      header: 'strict-transport-security',
+      required: true,
+      severity: 'HIGH',
+      cvssScore: 7.4,
+      description: 'HSTS header is missing. Without HSTS, clients may connect over insecure HTTP, allowing man-in-the-middle attacks.',
+      remediation: 'Add Strict-Transport-Security: max-age=31536000; includeSubDomains; preload',
+      goodExample: 'max-age=31536000; includeSubDomains',
+    },
+    {
+      header: 'x-content-type-options',
+      required: true,
+      severity: 'MEDIUM',
+      cvssScore: 5.1,
+      description: 'X-Content-Type-Options header is missing. Browsers may perform MIME-type sniffing, leading to XSS attacks.',
+      remediation: 'Add X-Content-Type-Options: nosniff to all responses',
+      goodExample: 'nosniff',
+    },
+    {
+      header: 'x-frame-options',
+      required: true,
+      severity: 'MEDIUM',
+      cvssScore: 4.3,
+      description: 'X-Frame-Options header is missing. The API responses can be embedded in frames, enabling clickjacking attacks.',
+      remediation: 'Add X-Frame-Options: DENY for APIs',
+      goodExample: 'DENY',
+    },
+    {
+      header: 'content-security-policy',
+      required: false,
+      severity: 'MEDIUM',
+      cvssScore: 5.4,
+      description: 'Content-Security-Policy header is missing. While primarily for HTML responses, APIs returning JSON should still set CSP.',
+      remediation: "Add Content-Security-Policy: default-src 'none'; frame-ancestors 'none'",
+      goodExample: "default-src 'none'; frame-ancestors 'none'",
+    },
+    {
+      header: 'referrer-policy',
+      required: false,
+      severity: 'LOW',
+      cvssScore: 3.1,
+      description: 'Referrer-Policy header is missing. Without this header, sensitive URL information may be leaked in Referer headers.',
+      remediation: 'Add Referrer-Policy: no-referrer or strict-origin-when-cross-origin',
+      goodExample: 'no-referrer',
+    },
+    {
+      header: 'cache-control',
+      required: true,
+      severity: 'MEDIUM',
+      cvssScore: 5.3,
+      description: 'Cache-Control header is missing or not set to prevent caching. API responses containing sensitive data may be cached.',
+      remediation: 'Add Cache-Control: no-store, no-cache, must-revalidate for authenticated API endpoints',
+      goodExample: 'no-store',
+    },
+    {
+      header: 'x-powered-by',
+      required: false,
+      severity: 'INFO',
+      cvssScore: 2.1,
+      description: 'X-Powered-By header reveals server technology information, helping attackers identify vulnerabilities.',
+      remediation: 'Remove X-Powered-By header. In Express: app.disable("x-powered-by"). In NestJS with helmet: this is handled automatically.',
+      badValues: ['express', 'php', 'asp.net', 'django'],
+    },
+    {
+      header: 'server',
+      required: false,
+      severity: 'INFO',
+      cvssScore: 2.1,
+      description: 'Server header reveals web server version, aiding fingerprinting and targeted attacks.',
+      remediation: 'Remove or obfuscate the Server header in your web server configuration.',
+      badValues: ['nginx', 'apache', 'iis', 'kestrel'],
+    },
+  ];
+
+  async run(context: ScanContext): Promise<PluginResult> {
+    const start = Date.now();
+    const findings: ScanFinding[] = [];
+
+    const testEndpoint = context.endpoints.find((e) => e.method === 'GET') || context.endpoints[0];
+    if (!testEndpoint) {
+      return { pluginId: this.id, pluginName: this.name, findings: [], scanDuration: Date.now() - start, endpointsTested: 0 };
+    }
+
+    const url = this.buildUrl(context.baseUrl, this.fillPathParams(testEndpoint.path));
+    const authHeaders = this.getAuthHeaders(context.auth);
+
+    let responseHeaders: Record<string, string> = {};
+    let responseStatus = 0;
+
+    try {
+      const resp = await axios.get(url, {
+        headers: authHeaders,
+        timeout: context.config.timeoutMs,
+        validateStatus: () => true,
+      });
+      responseHeaders = resp.headers as any;
+      responseStatus = resp.status;
+    } catch (error) {
+      return {
+        pluginId: this.id,
+        pluginName: this.name,
+        findings: [],
+        scanDuration: Date.now() - start,
+        endpointsTested: 1,
+        error: `Failed to connect: ${error.message}`,
+      };
+    }
+
+    const lowerHeaders = Object.fromEntries(
+      Object.entries(responseHeaders).map(([k, v]) => [k.toLowerCase(), v]),
+    );
+
+    for (const check of this.checks) {
+      const headerValue = lowerHeaders[check.header];
+
+      if (!headerValue && check.required) {
+        findings.push({
+          title: `Missing Security Header: ${check.header.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('-')}`,
+          category: 'Security Misconfiguration',
+          severity: check.severity,
+          cvssScore: check.cvssScore,
+          owaspCategory: 'API8:2023',
+          cweId: 'CWE-693',
+          pluginId: this.id,
+          endpointId: testEndpoint.id,
+          affectedUrl: url,
+          description: check.description,
+          impact: 'Missing security headers weaken the overall security posture and may expose users to browser-based attacks.',
+          likelihood: 'MEDIUM',
+          riskScore: check.cvssScore,
+          evidence: {
+            missingHeader: check.header,
+            url,
+            goodExample: check.goodExample,
+            existingHeaders: Object.keys(lowerHeaders).filter((h) => h.startsWith('x-') || h === 'content-security-policy'),
+          },
+          httpResponse: this.buildResponseString(responseStatus, responseHeaders, null),
+          remediation: check.remediation,
+          references: [
+            'https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/',
+            'https://securityheaders.com',
+            'https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html',
+          ],
+        });
+      } else if (headerValue && check.badValues) {
+        const valueLower = headerValue.toString().toLowerCase();
+        const isBad = check.badValues.some((bad) => valueLower.includes(bad));
+        if (isBad) {
+          findings.push({
+            title: `Information Disclosure via ${check.header} Header`,
+            category: 'Security Misconfiguration',
+            severity: check.severity,
+            cvssScore: check.cvssScore,
+            owaspCategory: 'API8:2023',
+            cweId: 'CWE-200',
+            pluginId: this.id,
+            endpointId: testEndpoint.id,
+            affectedUrl: url,
+            description: `${check.header}: ${headerValue} — ${check.description}`,
+            impact: 'Server technology disclosure helps attackers identify known vulnerabilities for the specific version.',
+            likelihood: 'LOW',
+            riskScore: check.cvssScore,
+            evidence: { header: check.header, value: headerValue },
+            remediation: check.remediation,
+            references: ['https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/'],
+          });
+        }
+      }
+    }
+
+    return {
+      pluginId: this.id,
+      pluginName: this.name,
+      findings,
+      scanDuration: Date.now() - start,
+      endpointsTested: 1,
+    };
+  }
+}
