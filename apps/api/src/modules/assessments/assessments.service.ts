@@ -106,7 +106,7 @@ export class AssessmentsService {
             maxRequestsPerEndpoint: config?.maxRequestsPerEndpoint ?? 10,
             requestDelayMs:         config?.requestDelayMs         ?? 200,
             timeoutMs:              config?.timeoutMs              ?? 10000,
-          },
+          } as any,
         },
       },
       include: { config: true },

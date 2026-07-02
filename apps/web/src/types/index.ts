@@ -4,7 +4,39 @@ export interface User {
   name: string;
   role: 'ADMIN' | 'ANALYST' | 'VIEWER';
   avatar?: string;
+  isActive?: boolean;
   lastLogin?: string;
+  createdAt: string;
+}
+
+export type AuditActionType =
+  | 'CREATE' | 'READ' | 'UPDATE' | 'DELETE'
+  | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'IMPORT'
+  | 'SCAN_START' | 'SCAN_STOP' | 'ROLE_CHANGE' | 'PASSWORD_RESET';
+
+export interface ManagedUser {
+  id: string;
+  email: string;
+  name: string;
+  role: 'ADMIN' | 'ANALYST' | 'VIEWER';
+  isActive: boolean;
+  lastLogin?: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { projects: number };
+}
+
+export interface AuditLog {
+  id: string;
+  userId?: string;
+  user?: { id: string; name: string; email: string };
+  action: AuditActionType;
+  resource: string;
+  resourceId?: string;
+  metadata?: Record<string, any>;
+  ipAddress?: string;
+  userAgent?: string;
+  success: boolean;
   createdAt: string;
 }
 
@@ -119,14 +151,18 @@ export interface PluginExecutionPlan {
 }
 
 export interface AiAnalysisMeta {
-  provider:   string;
-  model:      string;
-  available:  boolean;
-  analyzed:   number;
-  skipped:    number;
-  durationMs: number;
-  tokensUsed: number;
-  reason?:    string;
+  provider:      string;
+  model:         string;
+  available:     boolean;
+  analyzed:      number;
+  skipped:       number;
+  durationMs:    number;
+  tokensUsed:    number;
+  reason?:       string;
+  /** completed = ran successfully; skipped = disabled / no provider; failed = provider error */
+  status?:       'completed' | 'skipped' | 'failed';
+  /** Provider error detail when status === 'failed' */
+  errorMessage?: string;
 }
 
 export interface AiProviderStatus {

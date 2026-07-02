@@ -6,18 +6,48 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { authApi } from '@/lib/api';
+import { cn } from '@/lib/utils';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail]           = useState('');
+  const [password, setPassword]     = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]       = useState(false);
+
+  // Per-field error state — only shown after the user has interacted with the field
+  const [emailError, setEmailError] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
+
+  function validateEmail(value: string): string {
+    if (!value) return 'Email is required';
+    if (!EMAIL_RE.test(value)) return 'Invalid email format';
+    return '';
+  }
+
+  function handleEmailChange(value: string) {
+    setEmail(value);
+    // Clear error in real time once the user fixes the value
+    if (emailTouched) setEmailError(validateEmail(value));
+  }
+
+  function handleEmailBlur() {
+    setEmailTouched(true);
+    setEmailError(validateEmail(email));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
 
+    // Run validation on submit in case fields were never blurred
+    const err = validateEmail(email);
+    setEmailTouched(true);
+    setEmailError(err);
+    if (err) return;
+
+    setLoading(true);
     try {
       const data = await authApi.login({ email, password });
       localStorage.setItem('iasa_token', data.accessToken);
@@ -51,25 +81,34 @@ export default function LoginPage() {
           <h1 className="text-xl font-semibold text-white mb-1">Welcome back</h1>
           <p className="text-slate-400 text-sm mb-6">Sign in to your security dashboard</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            {/* Email */}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1.5">
                 Email address
               </label>
               <input
                 type="email"
-                required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => handleEmailChange(e.target.value)}
+                onBlur={handleEmailBlur}
                 placeholder="analyst@company.com"
-                className="w-full bg-slate-800/60 border border-slate-700 rounded-lg px-3.5 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-colors"
+                autoComplete="email"
+                className={cn(
+                  'w-full bg-slate-800/60 border rounded-lg px-3.5 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 transition-colors',
+                  emailError && emailTouched
+                    ? 'border-red-500/60 focus:ring-red-500/30 focus:border-red-500'
+                    : 'border-slate-700 focus:ring-violet-500/50 focus:border-violet-500',
+                )}
               />
+              {emailError && emailTouched && (
+                <p className="mt-1.5 text-xs text-red-400">{emailError}</p>
+              )}
             </div>
 
+            {/* Password */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-medium text-slate-300">Password</label>
-              </div>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -77,6 +116,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="current-password"
                   className="w-full bg-slate-800/60 border border-slate-700 rounded-lg px-3.5 py-2.5 pr-10 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-colors"
                 />
                 <button
@@ -95,7 +135,7 @@ export default function LoginPage() {
               className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2.5 text-sm transition-colors flex items-center justify-center gap-2"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {loading ? 'Signing in...' : 'Sign in'}
+              {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 

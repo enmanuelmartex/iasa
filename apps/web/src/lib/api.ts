@@ -148,6 +148,25 @@ export const aiApi = {
   getEnvStatus:        () => api.get('/ai/config/env-status').then((r) => r.data),
 };
 
+// Users (admin)
+export const usersApi = {
+  list: () => api.get('/users').then((r) => r.data),
+  get: (id: string) => api.get(`/users/${id}`).then((r) => r.data),
+  create: (data: { name: string; email: string; password: string; role?: string }) =>
+    api.post('/users', data).then((r) => r.data),
+  update: (id: string, data: { name?: string }) =>
+    api.patch(`/users/${id}`, data).then((r) => r.data),
+  changeRole: (id: string, role: string) =>
+    api.patch(`/users/${id}/role`, { role }).then((r) => r.data),
+  setStatus: (id: string, isActive: boolean) =>
+    api.patch(`/users/${id}/status`, { isActive }).then((r) => r.data),
+  resetPassword: (id: string, newPassword: string) =>
+    api.post(`/users/${id}/password-reset`, { newPassword }).then((r) => r.data),
+  remove: (id: string) => api.delete(`/users/${id}`).then((r) => r.data),
+  auditLogs: (params?: { limit?: number; offset?: number; userId?: string; action?: string; resource?: string }) =>
+    api.get('/users/audit-logs', { params }).then((r) => r.data),
+};
+
 // Reports
 export const reportsApi = {
   stats: () => api.get('/reports/stats').then((r) => r.data),

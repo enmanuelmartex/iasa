@@ -31,13 +31,28 @@ export class AiService {
 
     if (!provider.isAvailable()) {
       const status = provider.getStatus();
-      return this.buildMeta(status.provider, status.model, false, 0, findings.length, startTime, 0, status.reason);
+      return this.buildMeta({
+        provider:   status.provider,
+        model:      status.model,
+        available:  false,
+        analyzed:   0,
+        skipped:    findings.length,
+        startTime,
+        tokensUsed: 0,
+        status:     'skipped',
+        reason:     status.reason,
+      });
     }
 
-    const config = await this.aiConfigService.getEffectiveConfig();
+    const config     = await this.aiConfigService.getEffectiveConfig();
     const candidates = this.selectCandidates(findings, config);
-    let totalTokens = 0;
-    let analyzed    = 0;
+    let totalTokens  = 0;
+    let analyzed     = 0;
+
+    // Track batch failures to distinguish 'completed' from 'failed'
+    let anySucceeded    = false;
+    let anyFailed       = false;
+    let firstError: string | undefined;
 
     // ── Batch analysis ───────────────────────────────────────────────────────
     for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
@@ -45,16 +60,23 @@ export class AiService {
       try {
         const tokens = await this.analyzeBatch(provider, batch, config);
         totalTokens += tokens;
-        analyzed += batch.length;
+        analyzed    += batch.length;
+        anySucceeded = true;
       } catch (error: any) {
-        this.logger.warn(`AI batch failed (findings ${i}–${i + batch.length}): ${error?.message}`);
+        firstError = firstError ?? error?.message;
+        anyFailed  = true;
+        this.logger.warn(
+          `AI batch failed (findings ${i}–${i + batch.length}): ${error?.message}`,
+        );
       }
     }
 
     // ── Executive summary ────────────────────────────────────────────────────
     if (config.executiveSummary && findings.length > 0) {
       try {
-        const { summary, tokens } = await this.generateExecutiveSummary(provider, findings, context, config);
+        const { summary, tokens } = await this.generateExecutiveSummary(
+          provider, findings, context, config,
+        );
         totalTokens += tokens;
         findings.forEach((f) => {
           f.aiAnalysis = f.aiAnalysis ?? {};
@@ -65,10 +87,21 @@ export class AiService {
       }
     }
 
-    return this.buildMeta(
-      provider.providerName, provider.model, true, analyzed,
-      findings.length - analyzed, startTime, totalTokens,
-    );
+    // Determine outcome: 'failed' only when every batch threw (and there were candidates)
+    const executionStatus: 'completed' | 'failed' =
+      anyFailed && !anySucceeded && candidates.length > 0 ? 'failed' : 'completed';
+
+    return this.buildMeta({
+      provider:     provider.providerName,
+      model:        provider.model,
+      available:    true,
+      analyzed,
+      skipped:      findings.length - analyzed,
+      startTime,
+      tokensUsed:   totalTokens,
+      status:       executionStatus,
+      errorMessage: executionStatus === 'failed' ? firstError : undefined,
+    });
   }
 
   async getProviderStatus(): Promise<AiProviderStatus> {
@@ -119,7 +152,7 @@ Each object must have:
     });
 
     const parsed = this.parseJsonSafely(response.content);
-    const arr = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+    const arr    = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
     findings.forEach((f, i) => {
       if (arr[i]) f.aiAnalysis = { ...(f.aiAnalysis ?? {}), ...arr[i] };
     });
@@ -170,11 +203,29 @@ Write a professional summary for a CISO. Be direct about risk level and business
     return null;
   }
 
-  private buildMeta(
-    provider: string, model: string, available: boolean,
-    analyzed: number, skipped: number, startTime: number,
-    tokensUsed: number, reason?: string,
-  ): AiAnalysisMeta {
-    return { provider, model, available, analyzed, skipped, durationMs: Date.now() - startTime, tokensUsed, reason };
+  private buildMeta(params: {
+    provider:      string;
+    model:         string;
+    available:     boolean;
+    analyzed:      number;
+    skipped:       number;
+    startTime:     number;
+    tokensUsed:    number;
+    status:        'completed' | 'skipped' | 'failed';
+    reason?:       string;
+    errorMessage?: string;
+  }): AiAnalysisMeta {
+    return {
+      provider:     params.provider,
+      model:        params.model,
+      available:    params.available,
+      analyzed:     params.analyzed,
+      skipped:      params.skipped,
+      durationMs:   Date.now() - params.startTime,
+      tokensUsed:   params.tokensUsed,
+      status:       params.status,
+      reason:       params.reason,
+      errorMessage: params.errorMessage,
+    };
   }
 }

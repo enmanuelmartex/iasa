@@ -23,15 +23,19 @@ import {
   GitBranch,
   Zap,
   Sparkles,
+  Users,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { authApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { AiConfigTab } from './ai-config-tab';
+import { UsersTab } from './users-tab';
+import { AuditLogsTab } from './audit-logs-tab';
 
-type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'system' | 'about';
+type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'system' | 'about' | 'users' | 'audit-logs';
 
-const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
+const ALL_TABS: { id: TabId; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: 'general',       label: 'General',          icon: Settings2 },
   { id: 'security',      label: 'Security',          icon: Shield },
   { id: 'tokens',        label: 'API Tokens',        icon: Key },
@@ -39,6 +43,8 @@ const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'ai',            label: 'AI Configuration',  icon: Sparkles },
   { id: 'system',        label: 'System',            icon: Cpu },
   { id: 'about',         label: 'About',             icon: Info },
+  { id: 'users',         label: 'Users',             icon: Users,         adminOnly: true },
+  { id: 'audit-logs',   label: 'Audit Logs',        icon: ClipboardList, adminOnly: true },
 ];
 
 export default function SettingsPage() {
@@ -49,6 +55,9 @@ export default function SettingsPage() {
     queryFn: authApi.me,
     staleTime: 5 * 60_000,
   });
+
+  const isAdmin = me?.role === 'ADMIN';
+  const tabs = ALL_TABS.filter((t) => !t.adminOnly || isAdmin);
 
   return (
     <div className="p-8">
@@ -63,7 +72,8 @@ export default function SettingsPage() {
         {/* Sidebar */}
         <aside className="w-48 flex-shrink-0">
           <nav className="space-y-0.5">
-            {tabs.map((tab) => (
+            {/* Non-admin tabs */}
+            {tabs.filter((t) => !t.adminOnly).map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -78,6 +88,32 @@ export default function SettingsPage() {
                 {tab.label}
               </button>
             ))}
+
+            {/* Admin section */}
+            {isAdmin && (
+              <>
+                <div className="pt-4 pb-1.5 px-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+                    Administration
+                  </p>
+                </div>
+                {tabs.filter((t) => t.adminOnly).map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left',
+                      activeTab === tab.id
+                        ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent',
+                    )}
+                  >
+                    <tab.icon className={cn('w-4 h-4 flex-shrink-0', activeTab === tab.id ? 'text-violet-400' : 'text-slate-500')} />
+                    {tab.label}
+                  </button>
+                ))}
+              </>
+            )}
           </nav>
         </aside>
 
@@ -90,6 +126,8 @@ export default function SettingsPage() {
           {activeTab === 'ai'            && <AiConfigTab />}
           {activeTab === 'system'        && <SystemTab />}
           {activeTab === 'about'         && <AboutTab />}
+          {activeTab === 'users'         && isAdmin && <UsersTab currentUserId={me?.id ?? ''} />}
+          {activeTab === 'audit-logs'    && isAdmin && <AuditLogsTab />}
         </div>
       </div>
     </div>

@@ -105,6 +105,8 @@ enum AuditAction {
   IMPORT
   SCAN_START
   SCAN_STOP
+  ROLE_CHANGE
+  PASSWORD_RESET
 }
 
 enum PluginCategory {

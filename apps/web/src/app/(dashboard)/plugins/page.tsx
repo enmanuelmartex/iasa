@@ -86,13 +86,6 @@ export default function PluginsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/plugins/run"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            Run Plugin
-          </Link>
-          <Link
             href="/plugins/profiles"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
           >

@@ -38,14 +38,18 @@ export interface AiAnalysisConfig {
 }
 
 export interface AiAnalysisMeta {
-  provider: string;
-  model: string;
-  available: boolean;
-  analyzed: number;
-  skipped: number;
-  durationMs: number;
-  tokensUsed: number;
-  reason?: string;
+  provider:      string;
+  model:         string;
+  available:     boolean;
+  analyzed:      number;
+  skipped:       number;
+  durationMs:    number;
+  tokensUsed:    number;
+  reason?:       string;
+  /** Execution outcome: completed (ran), skipped (disabled / no provider), failed (provider error) */
+  status:        'completed' | 'skipped' | 'failed';
+  /** Provider error detail when status === 'failed' */
+  errorMessage?: string;
 }
 
 export interface IAiProvider {

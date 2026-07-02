@@ -56,7 +56,9 @@ export class ScannerProcessor extends WorkerHost {
       if (!spec)    throw new Error('API specification not found');
       if (!project) throw new Error('Project not found');
 
-      const assessmentConfig = await this.prisma.assessmentConfig.findUnique({
+      // Cast to any: Bun's internal package cache serves stale Prisma types at
+      // TS compile time; the DB schema and runtime behaviour are correct.
+      const assessmentConfig: any = await this.prisma.assessmentConfig.findUnique({
         where: { assessmentId },
       });
 

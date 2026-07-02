@@ -441,8 +441,15 @@ function ProviderPanel({
   });
 
   const canTest = !testMut.isPending && (
-    !requiresApiKey || hasExistingKey || Boolean(form.apiKey)
+    !requiresApiKey || hasExistingKey || Boolean(form.apiKey) || Boolean(config?.envHasKey)
   );
+
+  // Provider must have credentials before it can be activated
+  const isConfigured =
+    !requiresApiKey ||          // Ollama — no key needed
+    hasExistingKey   ||          // key already stored in DB
+    Boolean(form.apiKey) ||     // key being entered right now
+    Boolean(config?.envHasKey); // key present as env var
 
   const activeProviderName = configs.find((c) => c.isActive)?.provider;
   const isAlreadyActive    = config?.isActive;
@@ -686,23 +693,31 @@ function ProviderPanel({
 
         {/* Activate */}
         {!isAlreadyActive && (
-          <button
-            onClick={() => activateMut.mutate()}
-            disabled={activateMut.isPending}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm border transition-colors',
-              activateMut.isPending
-                ? 'border-slate-700 text-slate-600 cursor-not-allowed'
-                : 'border-violet-500/30 text-violet-400 hover:bg-violet-500/10 hover:border-violet-500/50',
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={() => activateMut.mutate()}
+              disabled={activateMut.isPending || !isConfigured}
+              title={!isConfigured ? `Add an API key for ${p.name} before activating` : undefined}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm border transition-colors',
+                activateMut.isPending || !isConfigured
+                  ? 'border-slate-700 text-slate-600 cursor-not-allowed'
+                  : 'border-violet-500/30 text-violet-400 hover:bg-violet-500/10 hover:border-violet-500/50',
+              )}
+            >
+              {activateMut.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <CircleDot className="w-4 h-4" />
+              )}
+              Set as Active
+            </button>
+            {!isConfigured && (
+              <p className="text-[11px] text-slate-600 pl-1">
+                Save an API key first to enable activation.
+              </p>
             )}
-          >
-            {activateMut.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <CircleDot className="w-4 h-4" />
-            )}
-            Set as Active
-          </button>
+          </div>
         )}
 
         {/* Active indicator */}

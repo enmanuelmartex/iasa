@@ -28,14 +28,17 @@ const OWASP_LABELS: Record<string, string> = {
 // ── AI Status Banner ──────────────────────────────────────────────────────────
 
 function AiStatusBanner({ meta }: { meta: AiAnalysisMeta }) {
-  if (meta.available && meta.analyzed > 0) {
+  // Derive status — new field takes priority; fall back to legacy logic
+  const status = meta.status ?? (
+    (meta.available && meta.analyzed > 0) ? 'completed' : 'skipped'
+  );
+
+  if (status === 'completed') {
     return (
       <div className="flex items-start gap-3 px-4 py-3 bg-violet-500/5 border border-violet-500/20 rounded-xl text-sm">
         <Sparkles className="w-4 h-4 text-violet-400 flex-shrink-0 mt-0.5" />
         <div>
-          <span className="text-violet-300 font-medium">
-            AI analysis complete
-          </span>
+          <span className="text-violet-300 font-medium">AI analysis complete</span>
           <span className="text-slate-400">
             {' '}— {meta.analyzed} finding{meta.analyzed !== 1 ? 's' : ''} enriched
             by <span className="font-mono text-violet-300">{meta.provider}/{meta.model}</span>
@@ -47,6 +50,24 @@ function AiStatusBanner({ meta }: { meta: AiAnalysisMeta }) {
     );
   }
 
+  if (status === 'failed') {
+    return (
+      <div className="flex items-start gap-3 px-4 py-3 bg-red-500/5 border border-red-500/20 rounded-xl text-sm">
+        <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+        <div>
+          <span className="text-red-400 font-medium">AI analysis failed</span>
+          <span className="text-slate-400">
+            {' '}— Provider: <span className="font-mono">{meta.provider}</span>
+            {meta.errorMessage && (
+              <> · <span className="text-red-300">{meta.errorMessage}</span></>
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // status === 'skipped'
   return (
     <div className="flex items-start gap-3 px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-sm">
       <AlertTriangle className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />

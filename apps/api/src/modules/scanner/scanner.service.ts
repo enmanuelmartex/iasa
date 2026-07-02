@@ -158,6 +158,7 @@ export class ScannerService {
       provider:  'none',
       model:     'none',
       available: false,
+      status:    'skipped',
       analyzed:  0,
       skipped:   allFindings.length,
       durationMs: 0,

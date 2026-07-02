@@ -2,10 +2,19 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Play, Zap, List, LayoutTemplate } from 'lucide-react';
+import { Loader2, Play, Zap, List, LayoutTemplate, AlertTriangle, Bot } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { profilesApi, pluginsApi } from '@/lib/api';
-import type { ScanProfile, Plugin } from '@/types';
+import { profilesApi, pluginsApi, aiApi } from '@/lib/api';
+import type { ScanProfile, Plugin, AiProviderStatus } from '@/types';
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  claude: 'Claude',
+  gemini: 'Gemini',
+  grok:   'Groq',
+  ollama: 'Ollama',
+};
 
 interface RunScanDialogProps {
   projectId: string;
@@ -20,25 +29,31 @@ interface RunScanDialogProps {
 }
 
 export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning }: RunScanDialogProps) {
-  const [mode, setMode] = useState<'all' | 'profile' | 'manual'>('all');
+  const [mode, setMode]               = useState<'all' | 'profile' | 'manual'>('all');
   const [selectedProfile, setSelectedProfile] = useState<string>('');
-  const [manualPlugins, setManualPlugins] = useState<string[]>([]);
-  const [enableAi, setEnableAi] = useState(true);
+  const [manualPlugins, setManualPlugins]     = useState<string[]>([]);
+  const [enableAi, setEnableAi]       = useState(true);
 
   const { data: profiles = [] } = useQuery<ScanProfile[]>({
     queryKey: ['scan-profiles'],
-    queryFn: profilesApi.list,
+    queryFn:  profilesApi.list,
   });
 
   const { data: plugins = [] } = useQuery<Plugin[]>({
     queryKey: ['plugins'],
-    queryFn: pluginsApi.list,
-    enabled: mode === 'manual',
+    queryFn:  pluginsApi.list,
+    enabled:  mode === 'manual',
   });
 
-  const userProfiles = profiles.filter((p) => !p.isSystem);
+  const { data: aiStatus, isLoading: aiLoading } = useQuery<AiProviderStatus>({
+    queryKey: ['ai', 'status'],
+    queryFn:  aiApi.status,
+    staleTime: 30_000,
+  });
+
+  const userProfiles   = profiles.filter((p) => !p.isSystem);
   const systemProfiles = profiles.filter((p) => p.isSystem);
-  const allProfiles = [...systemProfiles, ...userProfiles];
+  const allProfiles    = [...systemProfiles, ...userProfiles];
 
   function togglePlugin(id: string) {
     setManualPlugins((prev) =>
@@ -46,9 +61,13 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
     );
   }
 
+  // AI is enabled but no provider is configured → block run
+  const aiBlocksRun = enableAi && !aiLoading && aiStatus !== undefined && !aiStatus.available;
+
   function canRun() {
+    if (aiBlocksRun) return false;
     if (mode === 'profile') return Boolean(selectedProfile);
-    if (mode === 'manual') return manualPlugins.length > 0;
+    if (mode === 'manual')  return manualPlugins.length > 0;
     return true;
   }
 
@@ -56,7 +75,7 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
     onRun({
       executionMode: mode,
       scanProfileId: mode === 'profile' ? selectedProfile : undefined,
-      manualPlugins: mode === 'manual' ? manualPlugins : undefined,
+      manualPlugins: mode === 'manual'  ? manualPlugins  : undefined,
       enableAiAnalysis: enableAi,
     });
   }
@@ -64,6 +83,7 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl">
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
           <div>
@@ -74,18 +94,19 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Mode selector */}
+
+          {/* ── Execution mode ─────────────────────────────────────────────── */}
           <div className="space-y-2">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Execution Mode</p>
             <div className="space-y-2">
               {[
-                { id: 'all', icon: Zap, label: 'All Enabled Plugins', desc: 'Run every plugin you have enabled globally' },
-                { id: 'profile', icon: LayoutTemplate, label: 'Scan Profile', desc: 'Use a saved collection of plugins' },
-                { id: 'manual', icon: List, label: 'Manual Selection', desc: 'Pick plugins individually for this scan only' },
+                { id: 'all',     icon: Zap,            label: 'All Enabled Plugins', desc: 'Run every plugin you have enabled globally' },
+                { id: 'profile', icon: LayoutTemplate,  label: 'Scan Profile',        desc: 'Use a saved collection of plugins' },
+                { id: 'manual',  icon: List,            label: 'Manual Selection',    desc: 'Pick plugins individually for this scan only' },
               ].map(({ id, icon: Icon, label, desc }) => (
                 <button
                   key={id}
-                  onClick={() => setMode(id as 'all' | 'profile' | 'manual')}
+                  onClick={() => setMode(id as typeof mode)}
                   className={cn(
                     'w-full flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all',
                     mode === id
@@ -106,13 +127,13 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
             </div>
           </div>
 
-          {/* Profile selector */}
+          {/* ── Profile selector ───────────────────────────────────────────── */}
           {mode === 'profile' && (
             <div>
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Select Profile</p>
               {allProfiles.length === 0 ? (
                 <p className="text-sm text-slate-500 p-3 bg-slate-800/40 rounded-xl border border-slate-800">
-                  No profiles available. Create one in the Plugins → Profiles section.
+                  No profiles available. Create one in Plugins → Profiles.
                 </p>
               ) : (
                 <div className="space-y-1.5 max-h-48 overflow-y-auto">
@@ -144,7 +165,7 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
             </div>
           )}
 
-          {/* Manual plugin selector */}
+          {/* ── Manual plugin selector ─────────────────────────────────────── */}
           {mode === 'manual' && (
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -167,10 +188,14 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
                       'w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center',
                       manualPlugins.includes(p.id) ? 'bg-violet-500 border-violet-500' : 'border-slate-600',
                     )}>
-                      {manualPlugins.includes(p.id) && <span className="text-white text-[10px] font-bold">✓</span>}
+                      {manualPlugins.includes(p.id) && (
+                        <span className="text-white text-[10px] font-bold">✓</span>
+                      )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className={cn('text-sm font-medium truncate', manualPlugins.includes(p.id) ? 'text-violet-300' : 'text-slate-300')}>{p.name}</p>
+                      <p className={cn('text-sm font-medium truncate', manualPlugins.includes(p.id) ? 'text-violet-300' : 'text-slate-300')}>
+                        {p.name}
+                      </p>
                       <p className="text-xs text-slate-500 truncate">{p.category}</p>
                     </div>
                   </button>
@@ -179,18 +204,66 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
             </div>
           )}
 
-          {/* AI toggle */}
-          <div className="flex items-center justify-between py-2 border-t border-slate-800">
-            <div>
-              <p className="text-sm font-medium text-slate-300">AI Analysis</p>
-              <p className="text-xs text-slate-500">Enrich findings with AI insights</p>
+          {/* ── AI Analysis ────────────────────────────────────────────────── */}
+          <div className="space-y-2.5 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-300">AI Analysis</p>
+
+                {/* Provider status line */}
+                {aiLoading ? (
+                  <p className="text-xs text-slate-600 mt-0.5">Checking provider…</p>
+                ) : aiStatus?.available ? (
+                  <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                    <Bot className="w-3 h-3 text-violet-400 flex-shrink-0" />
+                    <span>
+                      Provider:{' '}
+                      <span className="text-violet-400 font-medium">
+                        {PROVIDER_LABELS[aiStatus.provider] ?? aiStatus.provider}
+                      </span>
+                      {' · '}
+                      <span className="font-mono">{aiStatus.model}</span>
+                    </span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-0.5">No active provider configured</p>
+                )}
+              </div>
+
+              <button
+                onClick={() => setEnableAi(!enableAi)}
+                className={cn(
+                  'relative w-9 h-5 rounded-full transition-colors flex-shrink-0',
+                  enableAi ? 'bg-violet-600' : 'bg-slate-700',
+                )}
+              >
+                <span className={cn(
+                  'absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform',
+                  enableAi ? 'translate-x-4' : 'translate-x-0',
+                )} />
+              </button>
             </div>
-            <button
-              onClick={() => setEnableAi(!enableAi)}
-              className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', enableAi ? 'bg-violet-600' : 'bg-slate-700')}
-            >
-              <span className={cn('absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', enableAi ? 'translate-x-4' : 'translate-x-0')} />
-            </button>
+
+            {/* Warning: AI enabled but no provider */}
+            {enableAi && !aiLoading && aiStatus !== undefined && !aiStatus.available && (
+              <div className="flex items-start gap-2.5 p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-amber-300">No AI provider configured</p>
+                  <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                    AI Analysis requires an active provider.{' '}
+                    <Link
+                      href="/settings"
+                      onClick={onClose}
+                      className="text-violet-400 hover:text-violet-300 underline underline-offset-2"
+                    >
+                      Settings → AI Configuration
+                    </Link>
+                    {' '}or disable AI Analysis to proceed.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -205,6 +278,11 @@ export function RunScanDialog({ projectId: _projectId, onClose, onRun, isRunning
           <button
             onClick={handleRun}
             disabled={!canRun() || isRunning}
+            title={
+              aiBlocksRun
+                ? 'Configure an AI provider or disable AI Analysis to continue'
+                : undefined
+            }
             className={cn(
               'flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-medium transition-colors',
               canRun() && !isRunning
