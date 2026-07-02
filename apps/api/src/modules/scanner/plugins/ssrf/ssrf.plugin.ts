@@ -1,11 +1,25 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class SsrfPlugin extends BasePlugin {
-  readonly id = 'ssrf';
-  readonly name = 'Server-Side Request Forgery';
-  readonly description = 'Tests for API7:2023 - Server-Side Request Forgery (SSRF)';
-  readonly owaspCategories = ['API7:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'ssrf',
+    name: 'Server-Side Request Forgery',
+    version: '1.0.0',
+    description: 'Tests for API7:2023 - Server-Side Request Forgery (SSRF)',
+    longDescription: 'Injects malicious URLs (localhost, AWS metadata endpoint, file://) into URL-accepting parameters to detect SSRF vulnerabilities that could expose internal infrastructure.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.INFRASTRUCTURE,
+    owaspMappings: ['API7:2023'],
+    cweIds: ['CWE-918'],
+    tags: ['ssrf', 'infrastructure', 'cloud', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'http:write', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   private readonly ssrfPayloads = [
     'http://169.254.169.254/latest/meta-data/',

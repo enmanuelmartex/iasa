@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 interface DataPattern {
   name: string;
@@ -11,10 +12,23 @@ interface DataPattern {
 }
 
 export class SensitiveDataPlugin extends BasePlugin {
-  readonly id = 'sensitive-data';
-  readonly name = 'Sensitive Data Exposure';
-  readonly description = 'Tests for API3:2023 and API8:2023 - Sensitive data in API responses';
-  readonly owaspCategories = ['API3:2023', 'API8:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'sensitive-data',
+    name: 'Sensitive Data Exposure',
+    version: '1.0.0',
+    description: 'Tests for API3:2023 and API8:2023 - Sensitive data in API responses',
+    longDescription: 'Scans API responses for regex patterns matching credit card numbers, SSNs, private keys, AWS access keys, and generic secrets accidentally returned in payloads.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.COMPLIANCE,
+    owaspMappings: ['API3:2023', 'API8:2023'],
+    cweIds: ['CWE-200', 'CWE-312'],
+    tags: ['sensitive-data', 'pii', 'secrets', 'compliance', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   private readonly patterns: DataPattern[] = [
     {

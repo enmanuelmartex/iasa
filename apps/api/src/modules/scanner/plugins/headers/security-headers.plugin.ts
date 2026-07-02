@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 interface HeaderCheck {
   header: string;
@@ -13,10 +14,23 @@ interface HeaderCheck {
 }
 
 export class SecurityHeadersPlugin extends BasePlugin {
-  readonly id = 'security-headers';
-  readonly name = 'Security Headers';
-  readonly description = 'Tests for API8:2023 - Security Misconfiguration (HTTP Security Headers)';
-  readonly owaspCategories = ['API8:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'security-headers',
+    name: 'Security Headers',
+    version: '1.0.0',
+    description: 'Tests for API8:2023 - Security Misconfiguration (HTTP Security Headers)',
+    longDescription: 'Audits HTTP response headers for the presence and correct configuration of security directives such as HSTS, CSP, X-Content-Type-Options, and X-Frame-Options.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.HEADERS,
+    owaspMappings: ['API8:2023'],
+    cweIds: ['CWE-693', 'CWE-1021'],
+    tags: ['headers', 'misconfiguration', 'hsts', 'csp', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   private readonly checks: HeaderCheck[] = [
     {

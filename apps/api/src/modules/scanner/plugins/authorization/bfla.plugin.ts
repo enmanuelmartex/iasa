@@ -1,11 +1,25 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class BflaPlugin extends BasePlugin {
-  readonly id = 'bfla';
-  readonly name = 'Broken Function Level Authorization';
-  readonly description = 'Tests for API5:2023 - Broken Function Level Authorization';
-  readonly owaspCategories = ['API5:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'bfla',
+    name: 'Broken Function Level Authorization',
+    version: '1.0.0',
+    description: 'Tests for API5:2023 - Broken Function Level Authorization',
+    longDescription: 'Detects endpoints that expose administrative or elevated-privilege operations to regular users by probing admin-pattern paths without appropriate authorization.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.AUTHORIZATION,
+    owaspMappings: ['API5:2023'],
+    cweIds: ['CWE-285', 'CWE-648'],
+    tags: ['authorization', 'bfla', 'privilege-escalation', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'http:write', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   private readonly adminPaths = [
     '/admin', '/admin/', '/api/admin', '/management', '/internal',

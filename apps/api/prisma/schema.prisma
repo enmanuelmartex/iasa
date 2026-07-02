@@ -107,6 +107,29 @@ enum AuditAction {
   SCAN_STOP
 }
 
+enum PluginCategory {
+  AUTHENTICATION
+  AUTHORIZATION
+  HEADERS
+  INJECTION
+  API_DESIGN
+  PERFORMANCE
+  INFRASTRUCTURE
+  COMPLIANCE
+  AI
+  CLOUD
+  GRAPHQL
+  GRPC
+  SOAP
+}
+
+enum PluginExecutionStatus {
+  SUCCESS
+  FAILED
+  TIMEOUT
+  SKIPPED
+}
+
 // =============================================================================
 // USER & ORGANIZATION
 // =============================================================================
@@ -124,9 +147,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  projects  Project[]
-  apiKeys   ApiKey[]
-  auditLogs AuditLog[]
+  projects         Project[]
+  apiKeys          ApiKey[]
+  auditLogs        AuditLog[]
+  pluginUserConfigs PluginUserConfig[]
+  scanProfiles     ScanProfile[]
 
   @@map("users")
 }
@@ -295,9 +320,10 @@ model Assessment {
   completedAt DateTime?
   duration    Int?            // seconds
 
-  findings Finding[]
-  reports  Report[]
-  logs     AssessmentLog[]
+  findings         Finding[]
+  reports          Report[]
+  logs             AssessmentLog[]
+  pluginExecutions PluginExecution[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -310,23 +336,17 @@ model AssessmentConfig {
   assessmentId String     @unique
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
-  // Plugin toggles
-  enableBola             Boolean @default(true)
-  enableBrokenAuth       Boolean @default(true)
-  enableMassAssignment   Boolean @default(true)
-  enableRateLimit        Boolean @default(true)
-  enableBfla             Boolean @default(true)
-  enableSsrf             Boolean @default(false) // opt-in (can cause issues)
-  enableSecurityHeaders  Boolean @default(true)
-  enableCors             Boolean @default(true)
-  enableJwtAnalysis      Boolean @default(true)
-  enableSensitiveData    Boolean @default(true)
-  enableAiAnalysis       Boolean @default(true)
+  // Execution mode controls which plugins run
+  executionMode          String   @default("all")   // "all" | "profile" | "manual"
+  scanProfileId          String?
+  scanProfile            ScanProfile? @relation(fields: [scanProfileId], references: [id], onDelete: SetNull)
+  manualPlugins          String[]  @default([])     // plugin IDs for mode="manual"
 
-  // Scan intensity
-  maxRequestsPerEndpoint Int    @default(10)
-  requestDelayMs         Int    @default(200)
-  timeoutMs              Int    @default(10000)
+  // These settings always apply regardless of mode
+  enableAiAnalysis       Boolean   @default(true)
+  maxRequestsPerEndpoint Int       @default(10)
+  requestDelayMs         Int       @default(200)
+  timeoutMs              Int       @default(10000)
 
   createdAt DateTime @default(now())
 
@@ -351,7 +371,8 @@ model AssessmentSummary {
   riskLevel        String @default("LOW") // LOW | MEDIUM | HIGH | CRITICAL
 
   owaspCoverage    Json? // OWASP categories covered
-  pluginResults    Json? // Summary per plugin
+  pluginResults    Json? // PluginExecutionPlan — available / executed / skipped / versions / durationMs / findingCounts
+  aiStatus         Json? // AiAnalysisMeta — provider / model / available / analyzed / skipped / durationMs / tokensUsed / reason
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -445,6 +466,130 @@ model Report {
   generatedAt DateTime @default(now())
 
   @@map("reports")
+}
+
+// =============================================================================
+// PLUGIN MANAGEMENT
+// =============================================================================
+
+model Plugin {
+  id                   String         @id          // stable slug: "bola", "jwt-analysis"
+  name                 String
+  version              String         @default("1.0.0")
+  description          String
+  longDescription      String?
+  author               String         @default("IASA Core Team")
+  category             PluginCategory
+  owaspMappings        String[]
+  cweIds               String[]       @default([])
+  tags                 String[]       @default([])
+  isBuiltin            Boolean        @default(true)
+  isEnabled            Boolean        @default(true)   // global default
+  configSchema         Json?                           // JSON Schema for config UI
+  defaultConfig        Json?
+  permissions          String[]       @default([])
+  documentationUrl     String?
+  changelog            String?
+  minimumCoreVersion   String         @default("1.0.0")
+  license              String         @default("MIT")
+
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  userConfigs          PluginUserConfig[]
+  executions           PluginExecution[]
+
+  @@map("plugins")
+}
+
+model PluginUserConfig {
+  id        String   @id @default(cuid())
+  pluginId  String
+  userId    String
+  isEnabled Boolean  @default(true)
+  config    Json?                                // user overrides for configSchema fields
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plugin    Plugin   @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pluginId, userId])
+  @@map("plugin_user_configs")
+}
+
+model PluginExecution {
+  id            String                @id @default(cuid())
+  pluginId      String
+  assessmentId  String?
+  userId        String
+  status        PluginExecutionStatus
+  startedAt     DateTime
+  completedAt   DateTime?
+  durationMs    Int?
+  findingsCount Int                   @default(0)
+  errorMessage  String?
+  metadata      Json?
+
+  createdAt     DateTime              @default(now())
+
+  plugin        Plugin                @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  assessment    Assessment?           @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  @@map("plugin_executions")
+}
+
+model ScanProfile {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  icon           String?
+  userId         String?                        // null = system profile
+  isSystem       Boolean  @default(false)
+  enabledPlugins String[]                       // array of plugin IDs
+  pluginConfigs  Json?                          // per-plugin config overrides
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user               User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assessmentConfigs  AssessmentConfig[]
+
+  @@map("scan_profiles")
+}
+
+// =============================================================================
+// AI CONFIGURATION
+// =============================================================================
+
+/// One row per AI provider. Only one row has isActive=true at a time.
+/// API keys stored AES-256-CBC encrypted (iv_hex:ciphertext_hex).
+model AiProviderConfig {
+  id               String    @id @default(cuid())
+  provider         String    @unique  // openai | grok | claude | gemini | ollama
+  model            String?
+  apiKey           String?            // encrypted
+  baseUrl          String?            // Ollama / custom
+  isActive         Boolean   @default(false)
+  profile          String    @default("balanced")
+  analyzeCritical  Boolean   @default(true)
+  analyzeHigh      Boolean   @default(true)
+  analyzeMedium    Boolean   @default(false)
+  analyzeLow       Boolean   @default(false)
+  executiveSummary Boolean   @default(true)
+  maxTokens        Int?
+  temperature      Float?
+  timeoutMs        Int?
+  maxFindings      Int?
+  retryAttempts    Int       @default(2)
+  lastTestedAt     DateTime?
+  lastTestSuccess  Boolean?
+  lastTestMessage  String?
+  configuredAt     DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("ai_provider_configs")
 }
 
 // =============================================================================

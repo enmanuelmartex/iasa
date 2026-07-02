@@ -1,11 +1,25 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class CorsPlugin extends BasePlugin {
-  readonly id = 'cors';
-  readonly name = 'CORS Misconfiguration';
-  readonly description = 'Tests for API8:2023 - Security Misconfiguration (CORS)';
-  readonly owaspCategories = ['API8:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'cors',
+    name: 'CORS Misconfiguration',
+    version: '1.0.0',
+    description: 'Tests for API8:2023 - Security Misconfiguration (CORS)',
+    longDescription: 'Probes CORS configuration using malicious and crafted origins to detect wildcards combined with credentials, origin reflection, and permissive cross-origin policies.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.HEADERS,
+    owaspMappings: ['API8:2023'],
+    cweIds: ['CWE-346', 'CWE-942'],
+    tags: ['cors', 'headers', 'misconfiguration', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   private readonly testOrigins = [
     'https://evil.com',

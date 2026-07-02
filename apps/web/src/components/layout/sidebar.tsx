@@ -12,6 +12,7 @@ import {
   Settings,
   LogOut,
   ChevronRight,
+  Puzzle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +30,12 @@ const navItems = [
       { href: '/assessments', icon: Activity, label: 'Assessments' },
       { href: '/findings', icon: Bug, label: 'Findings' },
       { href: '/reports', icon: FileText, label: 'Reports' },
+    ],
+  },
+  {
+    label: 'Platform',
+    items: [
+      { href: '/plugins', icon: Puzzle, label: 'Plugins' },
     ],
   },
   {

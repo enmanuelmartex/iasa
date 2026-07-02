@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProjectDto, UpdateProjectDto } from './dto/create-project.dto';
 import SwaggerParser from 'swagger-parser';
 import axios from 'axios';
+import { resolveTargetUrl } from '../../common/utils/url-resolver.util';
 
 @Injectable()
 export class ProjectsService {
@@ -87,9 +88,10 @@ export class ProjectsService {
   async importOpenApiFromUrl(projectId: string, userId: string, url: string) {
     await this.assertOwner(projectId, userId);
 
-    this.logger.log(`Importing OpenAPI spec from URL: ${url}`);
+    const resolvedUrl = resolveTargetUrl(url);
+    this.logger.log(`Importing OpenAPI spec from URL: ${resolvedUrl}`);
 
-    const response = await axios.get(url, { timeout: 15000 });
+    const response = await axios.get(resolvedUrl, { timeout: 15000 });
     const rawSpec = response.data;
 
     return this.parseAndSaveSpec(projectId, rawSpec, 'URL', url);

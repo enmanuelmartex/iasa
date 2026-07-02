@@ -1,11 +1,25 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class MassAssignmentPlugin extends BasePlugin {
-  readonly id = 'mass-assignment';
-  readonly name = 'Mass Assignment';
-  readonly description = 'Tests for API3:2023 - Broken Object Property Level Authorization (Mass Assignment)';
-  readonly owaspCategories = ['API3:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'mass-assignment',
+    name: 'Mass Assignment',
+    version: '1.0.0',
+    description: 'Tests for API3:2023 - Broken Object Property Level Authorization (Mass Assignment)',
+    longDescription: 'Submits POST/PUT requests with extra privileged fields (isAdmin, role, price, etc.) not defined in the spec to detect APIs that blindly bind all incoming properties.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.AUTHORIZATION,
+    owaspMappings: ['API3:2023'],
+    cweIds: ['CWE-915'],
+    tags: ['mass-assignment', 'injection', 'authorization', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:write', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   private readonly privilegedFields = [
     'isAdmin', 'is_admin', 'role', 'roles', 'admin', 'superuser',

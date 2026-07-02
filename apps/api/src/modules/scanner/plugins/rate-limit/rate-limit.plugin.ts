@@ -1,11 +1,29 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class RateLimitPlugin extends BasePlugin {
-  readonly id = 'rate-limit';
-  readonly name = 'Rate Limiting';
-  readonly description = 'Tests for API4:2023 - Unrestricted Resource Consumption (Rate Limiting)';
-  readonly owaspCategories = ['API4:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'rate-limit',
+    name: 'Rate Limiting',
+    version: '1.0.0',
+    description: 'Tests for API4:2023 - Unrestricted Resource Consumption (Rate Limiting)',
+    longDescription: 'Fires bursts of rapid requests against selected endpoints and checks for 429 responses or rate-limit headers to detect missing throttling controls.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.PERFORMANCE,
+    owaspMappings: ['API4:2023'],
+    cweIds: ['CWE-770', 'CWE-400'],
+    tags: ['rate-limit', 'performance', 'dos', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'http:write', 'findings:write'],
+    configFields: [
+      { key: 'requestCount', label: 'Requests per burst', type: 'number', default: 25, min: 5, max: 100 },
+    ],
+    defaultConfig: { requestCount: 25 },
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   async run(context: ScanContext): Promise<PluginResult> {
     const start = Date.now();

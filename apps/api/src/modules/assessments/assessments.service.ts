@@ -63,7 +63,19 @@ export class AssessmentsService {
     return assessment;
   }
 
-  async createAndRun(projectId: string, userId: string, config?: any) {
+  async createAndRun(
+    projectId: string,
+    userId: string,
+    config?: {
+      executionMode?: 'all' | 'profile' | 'manual';
+      scanProfileId?: string;
+      manualPlugins?: string[];
+      enableAiAnalysis?: boolean;
+      maxRequestsPerEndpoint?: number;
+      requestDelayMs?: number;
+      timeoutMs?: number;
+    },
+  ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, userId },
       include: {
@@ -87,17 +99,13 @@ export class AssessmentsService {
         status: 'QUEUED',
         config: {
           create: {
-            enableBola: config?.enableBola ?? true,
-            enableBrokenAuth: config?.enableBrokenAuth ?? true,
-            enableMassAssignment: config?.enableMassAssignment ?? true,
-            enableRateLimit: config?.enableRateLimit ?? true,
-            enableBfla: config?.enableBfla ?? true,
-            enableSsrf: config?.enableSsrf ?? false,
-            enableSecurityHeaders: config?.enableSecurityHeaders ?? true,
-            enableCors: config?.enableCors ?? true,
-            enableJwtAnalysis: config?.enableJwtAnalysis ?? true,
-            enableSensitiveData: config?.enableSensitiveData ?? true,
-            enableAiAnalysis: config?.enableAiAnalysis ?? true,
+            executionMode:          config?.executionMode          ?? 'all',
+            scanProfileId:          config?.scanProfileId          ?? null,
+            manualPlugins:          config?.manualPlugins          ?? [],
+            enableAiAnalysis:       config?.enableAiAnalysis       ?? true,
+            maxRequestsPerEndpoint: config?.maxRequestsPerEndpoint ?? 10,
+            requestDelayMs:         config?.requestDelayMs         ?? 200,
+            timeoutMs:              config?.timeoutMs              ?? 10000,
           },
         },
       },
@@ -110,6 +118,7 @@ export class AssessmentsService {
         assessmentId: assessment.id,
         projectId,
         specId: project.apiSpec.id,
+        userId,               // required for per-user plugin enable/disable
       },
       { jobId: `assessment-${assessment.id}` },
     );

@@ -1,0 +1,620 @@
+// =============================================================================
+// IASA — Prisma Schema
+// Intelligent API Security Assessment
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum Role {
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum Environment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum SpecSource {
+  URL
+  UPLOAD
+  MANUAL
+}
+
+enum HttpMethod {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+  HEAD
+  OPTIONS
+  TRACE
+}
+
+enum AuthType {
+  NONE
+  BEARER
+  BASIC
+  API_KEY
+  OAUTH2
+  CUSTOM
+}
+
+enum AssessmentStatus {
+  PENDING
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum FindingStatus {
+  OPEN
+  CONFIRMED
+  FALSE_POSITIVE
+  RESOLVED
+  ACCEPTED_RISK
+}
+
+enum ReportType {
+  EXECUTIVE
+  TECHNICAL
+  COMPLIANCE
+  DEVELOPER
+}
+
+enum ReportFormat {
+  PDF
+  HTML
+  MARKDOWN
+  JSON
+  SARIF
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  IMPORT
+  SCAN_START
+  SCAN_STOP
+}
+
+enum PluginCategory {
+  AUTHENTICATION
+  AUTHORIZATION
+  HEADERS
+  INJECTION
+  API_DESIGN
+  PERFORMANCE
+  INFRASTRUCTURE
+  COMPLIANCE
+  AI
+  CLOUD
+  GRAPHQL
+  GRPC
+  SOAP
+}
+
+enum PluginExecutionStatus {
+  SUCCESS
+  FAILED
+  TIMEOUT
+  SKIPPED
+}
+
+// =============================================================================
+// USER & ORGANIZATION
+// =============================================================================
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String
+  password  String
+  role      Role      @default(ANALYST)
+  avatar    String?
+  isActive  Boolean   @default(true)
+  lastLogin DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects          Project[]
+  apiKeys           ApiKey[]
+  auditLogs         AuditLog[]
+  pluginUserConfigs PluginUserConfig[]
+  scanProfiles      ScanProfile[]
+
+  @@map("users")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  keyHash    String    @unique
+  keyPreview String
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  isActive   Boolean   @default(true)
+  scopes     String[]  @default(["read", "write"])
+
+  createdAt DateTime @default(now())
+
+  @@map("api_keys")
+}
+
+// =============================================================================
+// PROJECT
+// =============================================================================
+
+model Project {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  baseUrl     String
+  environment Environment @default(DEVELOPMENT)
+  tags        String[]    @default([])
+  isActive    Boolean     @default(true)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  apiSpec     ApiSpec?
+  assessments Assessment[]
+  secrets     ProjectSecret[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("projects")
+}
+
+model ProjectSecret {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key       String
+  value     String // AES-256 encrypted
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, key])
+  @@map("project_secrets")
+}
+
+// =============================================================================
+// API SPECIFICATION
+// =============================================================================
+
+model ApiSpec {
+  id        String  @id @default(cuid())
+  projectId String  @unique
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  source  SpecSource
+  url     String?
+  rawSpec Json
+  parsed  Json
+  version String?
+  title   String?
+  format  String?    @default("openapi")
+
+  authConfig AuthConfig?
+  endpoints  Endpoint[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("api_specs")
+}
+
+model AuthConfig {
+  id        String  @id @default(cuid())
+  apiSpecId String  @unique
+  apiSpec   ApiSpec @relation(fields: [apiSpecId], references: [id], onDelete: Cascade)
+
+  type AuthType @default(NONE)
+
+  // Bearer token
+  token String? // encrypted
+
+  // Basic auth
+  username String?
+  password String? // encrypted
+
+  // API Key
+  apiKey         String? // encrypted
+  apiKeyHeader   String? @default("X-API-Key")
+  apiKeyLocation String? @default("header") // header | query
+
+  // OAuth2
+  clientId     String? // encrypted
+  clientSecret String? // encrypted
+  tokenUrl     String?
+  scopes       String[]
+
+  // Custom headers
+  customHeaders Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("auth_configs")
+}
+
+model Endpoint {
+  id        String  @id @default(cuid())
+  apiSpecId String
+  apiSpec   ApiSpec @relation(fields: [apiSpecId], references: [id], onDelete: Cascade)
+
+  path        String
+  method      HttpMethod
+  summary     String?
+  description String?
+  operationId String?
+  tags        String[]
+  parameters  Json?
+  requestBody Json?
+  responses   Json?
+  security    Json?
+  deprecated  Boolean    @default(false)
+
+  findings Finding[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([apiSpecId, path, method])
+  @@map("endpoints")
+}
+
+// =============================================================================
+// ASSESSMENT
+// =============================================================================
+
+model Assessment {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  status      AssessmentStatus @default(PENDING)
+  progress    Int              @default(0) // 0-100
+  currentStep String?
+  jobId       String? // BullMQ job ID
+
+  config  AssessmentConfig?
+  summary AssessmentSummary?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Int? // seconds
+
+  findings         Finding[]
+  reports          Report[]
+  logs             AssessmentLog[]
+  pluginExecutions PluginExecution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("assessments")
+}
+
+model AssessmentConfig {
+  id           String     @id @default(cuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  // Plugin toggles
+  enableBola            Boolean @default(true)
+  enableBrokenAuth      Boolean @default(true)
+  enableMassAssignment  Boolean @default(true)
+  enableRateLimit       Boolean @default(true)
+  enableBfla            Boolean @default(true)
+  enableSsrf            Boolean @default(false) // opt-in (can cause issues)
+  enableSecurityHeaders Boolean @default(true)
+  enableCors            Boolean @default(true)
+  enableJwtAnalysis     Boolean @default(true)
+  enableSensitiveData   Boolean @default(true)
+  enableAiAnalysis      Boolean @default(true)
+
+  // Scan intensity
+  maxRequestsPerEndpoint Int @default(10)
+  requestDelayMs         Int @default(200)
+  timeoutMs              Int @default(10000)
+
+  createdAt DateTime @default(now())
+
+  @@map("assessment_configs")
+}
+
+model AssessmentSummary {
+  id           String     @id @default(cuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  totalEndpoints  Int @default(0)
+  testedEndpoints Int @default(0)
+  totalFindings   Int @default(0)
+  criticalCount   Int @default(0)
+  highCount       Int @default(0)
+  mediumCount     Int @default(0)
+  lowCount        Int @default(0)
+  infoCount       Int @default(0)
+
+  securityScore Float  @default(100) // 0-100
+  riskLevel     String @default("LOW") // LOW | MEDIUM | HIGH | CRITICAL
+
+  owaspCoverage Json? // OWASP categories covered
+  pluginResults Json? // PluginExecutionPlan — available / executed / skipped / versions / durationMs / findingCounts
+  aiStatus      Json? // AiAnalysisMeta — provider / model / available / analyzed / skipped / durationMs / tokensUsed / reason
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("assessment_summaries")
+}
+
+model AssessmentLog {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  level     String // info | warn | error
+  plugin    String?
+  message   String
+  metadata  Json?
+  timestamp DateTime @default(now())
+
+  @@map("assessment_logs")
+}
+
+// =============================================================================
+// FINDING
+// =============================================================================
+
+model Finding {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  endpointId   String?
+  endpoint     Endpoint?  @relation(fields: [endpointId], references: [id], onDelete: SetNull)
+
+  // Classification
+  title         String
+  category      String
+  severity      Severity
+  cvssScore     Float?
+  cvssVector    String?
+  owaspCategory String // e.g. "API1:2023"
+  cweId         String? // e.g. "CWE-639"
+  pluginId      String
+
+  // Description
+  description String
+  impact      String?
+  likelihood  String?
+  riskScore   Float?
+
+  // Evidence
+  evidence     Json?
+  httpRequest  String?
+  httpResponse String?
+  affectedUrl  String?
+
+  // Remediation
+  remediation String?
+  references  String[]
+
+  // AI Analysis
+  aiSummary     String?
+  aiAnalysis    Json?
+  aiGeneratedAt DateTime?
+
+  // Status
+  status FindingStatus @default(OPEN)
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("findings")
+}
+
+// =============================================================================
+// REPORT
+// =============================================================================
+
+model Report {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  type     ReportType
+  format   ReportFormat
+  title    String
+  filePath String?
+  fileSize Int?
+  content  String? // For text-based formats
+  checksum String? // SHA256 of file
+
+  generatedAt DateTime @default(now())
+
+  @@map("reports")
+}
+
+// =============================================================================
+// PLUGIN MANAGEMENT
+// =============================================================================
+
+model Plugin {
+  id                 String         @id // stable slug: "bola", "jwt-analysis"
+  name               String
+  version            String         @default("1.0.0")
+  description        String
+  longDescription    String?
+  author             String         @default("IASA Core Team")
+  category           PluginCategory
+  owaspMappings      String[]
+  cweIds             String[]       @default([])
+  tags               String[]       @default([])
+  isBuiltin          Boolean        @default(true)
+  isEnabled          Boolean        @default(true) // global default
+  configSchema       Json? // JSON Schema for config UI
+  defaultConfig      Json?
+  permissions        String[]       @default([])
+  documentationUrl   String?
+  changelog          String?
+  minimumCoreVersion String         @default("1.0.0")
+  license            String         @default("MIT")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userConfigs PluginUserConfig[]
+  executions  PluginExecution[]
+
+  @@map("plugins")
+}
+
+model PluginUserConfig {
+  id        String  @id @default(cuid())
+  pluginId  String
+  userId    String
+  isEnabled Boolean @default(true)
+  config    Json? // user overrides for configSchema fields
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plugin Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pluginId, userId])
+  @@map("plugin_user_configs")
+}
+
+model PluginExecution {
+  id            String                @id @default(cuid())
+  pluginId      String
+  assessmentId  String?
+  userId        String
+  status        PluginExecutionStatus
+  startedAt     DateTime
+  completedAt   DateTime?
+  durationMs    Int?
+  findingsCount Int                   @default(0)
+  errorMessage  String?
+  metadata      Json?
+
+  createdAt DateTime @default(now())
+
+  plugin     Plugin      @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  assessment Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  @@map("plugin_executions")
+}
+
+model ScanProfile {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  icon           String?
+  userId         String? // null = system profile
+  isSystem       Boolean  @default(false)
+  enabledPlugins String[] // array of plugin IDs
+  pluginConfigs  Json? // per-plugin config overrides
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("scan_profiles")
+}
+
+// =============================================================================
+// AI CONFIGURATION
+// =============================================================================
+
+/// One row per AI provider. Only one row has isActive=true at a time.
+/// API keys stored AES-256-CBC encrypted (iv_hex:ciphertext_hex).
+model AiProviderConfig {
+  id               String    @id @default(cuid())
+  provider         String    @unique // openai | grok | claude | gemini | ollama
+  model            String?
+  apiKey           String? // encrypted
+  baseUrl          String? // Ollama / custom
+  isActive         Boolean   @default(false)
+  profile          String    @default("balanced")
+  analyzeCritical  Boolean   @default(true)
+  analyzeHigh      Boolean   @default(true)
+  analyzeMedium    Boolean   @default(false)
+  analyzeLow       Boolean   @default(false)
+  executiveSummary Boolean   @default(true)
+  maxTokens        Int?
+  temperature      Float?
+  timeoutMs        Int?
+  maxFindings      Int?
+  retryAttempts    Int       @default(2)
+  lastTestedAt     DateTime?
+  lastTestSuccess  Boolean?
+  lastTestMessage  String?
+  configuredAt     DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("ai_provider_configs")
+}
+
+// =============================================================================
+// AUDIT LOG
+// =============================================================================
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     AuditAction
+  resource   String
+  resourceId String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  success    Boolean     @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}

@@ -1,10 +1,24 @@
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class JwtAnalysisPlugin extends BasePlugin {
-  readonly id = 'jwt-analysis';
-  readonly name = 'JWT Analysis';
-  readonly description = 'Analyzes JWT tokens for security weaknesses';
-  readonly owaspCategories = ['API2:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'jwt-analysis',
+    name: 'JWT Analysis',
+    version: '1.0.0',
+    description: 'Analyzes JWT tokens for security weaknesses',
+    longDescription: 'Decodes and inspects the configured JWT token checking for dangerous algorithms (none, RS→HS confusion), weak secrets, missing claims, and token expiration issues.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.AUTHENTICATION,
+    owaspMappings: ['API2:2023'],
+    cweIds: ['CWE-327', 'CWE-347'],
+    tags: ['jwt', 'authentication', 'token', 'crypto', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   async run(context: ScanContext): Promise<PluginResult> {
     const start = Date.now();

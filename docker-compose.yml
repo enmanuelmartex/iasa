@@ -63,13 +63,24 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-encryption-key-32-chars-min}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5-20251001}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-3}
       REPORTS_DIR: /app/reports
+      DOCKER_ENV: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${API_PORT:-4000}:4000"
     volumes:
       - ./apps/api/src:/app/src
       - ./apps/api/prisma:/app/prisma
+      - ./apps/api/tsconfig.json:/app/tsconfig.json
+      - ./apps/api/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
       - api_reports:/app/reports
     networks:
       - iasa-network

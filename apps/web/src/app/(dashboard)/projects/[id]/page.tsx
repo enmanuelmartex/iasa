@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import {
@@ -12,11 +13,12 @@ import { projectsApi, assessmentsApi } from '@/lib/api';
 import { StatusBadge, SeverityBadge, MethodBadge } from '@/components/ui/severity-badge';
 import { formatRelative, formatDuration, scoreToColor } from '@/lib/utils';
 import type { Project } from '@/types';
+import { RunScanDialog } from './run-scan-dialog';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const qc = useQueryClient();
+  const [showRunDialog, setShowRunDialog] = useState(false);
 
   const { data: project, isLoading } = useQuery<Project>({
     queryKey: ['project', id],
@@ -24,15 +26,13 @@ export default function ProjectDetailPage() {
   });
 
   const runMutation = useMutation({
-    mutationFn: () => assessmentsApi.run(id),
+    mutationFn: (config: Parameters<typeof assessmentsApi.run>[1]) =>
+      assessmentsApi.run(id, config),
     onSuccess: (assessment) => {
       toast.success('Assessment started!');
-      qc.invalidateQueries({ queryKey: ['project', id] });
       router.push(`/assessments/${assessment.id}`);
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.error || 'Failed to start assessment');
-    },
+    onError: () => toast.error('Failed to start assessment.'),
   });
 
   if (isLoading) {
@@ -81,7 +81,7 @@ export default function ProjectDetailPage() {
         </div>
 
         <button
-          onClick={() => runMutation.mutate()}
+          onClick={() => setShowRunDialog(true)}
           disabled={runMutation.isPending || !project.apiSpec}
           className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-5 py-2.5 rounded-lg transition-colors"
           title={!project.apiSpec ? 'Import an API spec first' : 'Run security assessment'}
@@ -235,6 +235,18 @@ export default function ProjectDetailPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {showRunDialog && (
+        <RunScanDialog
+          projectId={id}
+          onClose={() => setShowRunDialog(false)}
+          onRun={(config) => {
+            runMutation.mutate(config);
+            setShowRunDialog(false);
+          }}
+          isRunning={runMutation.isPending}
+        />
       )}
     </div>
   );

@@ -1,165 +1,201 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ScanContext, ScanFinding, PluginResult } from './types/scanner.types';
-import { BrokenAuthPlugin } from './plugins/authentication/broken-auth.plugin';
-import { BolaPlugin } from './plugins/authorization/bola.plugin';
-import { BflaPlugin } from './plugins/authorization/bfla.plugin';
-import { JwtAnalysisPlugin } from './plugins/jwt/jwt-analysis.plugin';
-import { RateLimitPlugin } from './plugins/rate-limit/rate-limit.plugin';
-import { CorsPlugin } from './plugins/cors/cors.plugin';
-import { SecurityHeadersPlugin } from './plugins/headers/security-headers.plugin';
-import { SensitiveDataPlugin } from './plugins/sensitive-data/sensitive-data.plugin';
-import { MassAssignmentPlugin } from './plugins/mass-assignment/mass-assignment.plugin';
-import { SsrfPlugin } from './plugins/ssrf/ssrf.plugin';
-import { AiAnalysisService } from './plugins/ai-analysis/ai-analysis.service';
+import { ScanContext, ScanFinding, BasePlugin } from './types/scanner.types';
+import { AiService } from '../ai/ai.service';
+import type { AiAnalysisMeta } from '../ai/interfaces/ai-provider.interface';
+import { PluginRegistryService } from '../plugins/plugin-registry.service';
+import { PluginExecutorService } from '../plugins/plugin-executor.service';
 
 type ProgressCallback = (progress: any) => void;
-type LogCallback = (entry: { level: string; plugin: string; message: string }) => void;
+type LogCallback      = (entry: { level: string; plugin: string; message: string }) => void;
+
+// ── Result contract ────────────────────────────────────────────────────────────
+
+export interface PluginExecutionPlan {
+  /** All plugin IDs present in the registry */
+  available:      string[];
+  /** Plugin IDs that actually ran this assessment */
+  executed:       string[];
+  /** Plugin IDs that were skipped (disabled by user or globally) */
+  skipped:        string[];
+  /** Why each skipped plugin was skipped */
+  skippedReason:  Record<string, string>;
+  /** Plugin version strings */
+  versions:       Record<string, string>;
+  /** Wall-clock execution time per plugin (ms) */
+  durationMs:     Record<string, number>;
+  /** Findings count per plugin */
+  findingCounts:  Record<string, number>;
+}
+
+export interface ScanRunResult {
+  findings:      ScanFinding[];
+  pluginPlan:    PluginExecutionPlan;
+  aiMeta:        AiAnalysisMeta;
+}
+
+// ── Service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class ScannerService {
   private readonly logger = new Logger(ScannerService.name);
 
   constructor(
-    private configService: ConfigService,
-    private aiAnalysisService: AiAnalysisService,
+    private readonly aiService:        AiService,
+    private readonly pluginRegistry:   PluginRegistryService,
+    private readonly pluginExecutor:   PluginExecutorService,
   ) {}
 
   async runAllPlugins(
-    context: ScanContext,
-    onProgress: ProgressCallback,
-    onLog: LogCallback,
-  ): Promise<ScanFinding[]> {
+    context:        ScanContext,
+    onProgress:     ProgressCallback,
+    onLog:          LogCallback,
+    userId?:        string,
+    pluginOverride?: BasePlugin[],
+  ): Promise<ScanRunResult> {
     const allFindings: ScanFinding[] = [];
 
-    const plugins = this.buildPluginPipeline(context);
-    const totalSteps = plugins.length + 2;
+    // ── 1. Resolve which plugins should run ───────────────────────────────────
+    //
+    //  pluginOverride supplied  → use exactly those plugins (profile / manual mode)
+    //  With user context        → respect per-user enable/disable (PluginUserConfig)
+    //                             falling back to global Plugin.isEnabled
+    //  Without user context     → use global Plugin.isEnabled only
+    //
+    const enabledPlugins: BasePlugin[] = pluginOverride?.length
+      ? pluginOverride
+      : userId
+        ? await this.pluginRegistry.getEnabledForUser(userId)
+        : await this.pluginRegistry.getEnabledGlobally();
+
+    const allRegistered = this.pluginRegistry.getAll();
+
+    // Build the execution plan (tracks available / executed / skipped)
+    const enabledIds = new Set(enabledPlugins.map((p) => p.manifest.id));
+    const plan: PluginExecutionPlan = {
+      available:     allRegistered.map((p) => p.manifest.id),
+      executed:      [],
+      skipped:       [],
+      skippedReason: {},
+      versions:      Object.fromEntries(allRegistered.map((p) => [p.manifest.id, p.manifest.version])),
+      durationMs:    {},
+      findingCounts: {},
+    };
+
+    for (const p of allRegistered) {
+      if (!enabledIds.has(p.manifest.id)) {
+        plan.skipped.push(p.manifest.id);
+        plan.skippedReason[p.manifest.id] = userId ? 'disabled_by_user' : 'disabled_globally';
+      }
+    }
+
+    // ── 2. Log the execution plan ─────────────────────────────────────────────
+    onLog({
+      level: 'info',
+      plugin: 'core',
+      message: `Plugin execution plan: ${enabledPlugins.length} enabled, ${plan.skipped.length} skipped`,
+    });
+
+    if (plan.skipped.length > 0) {
+      onLog({
+        level: 'info',
+        plugin: 'core',
+        message: `Skipped plugins: ${plan.skipped.join(', ')}`,
+      });
+    }
+
+    const totalSteps = enabledPlugins.length + 2; // +2 for init + AI
     let stepIndex = 2;
 
-    for (const { plugin, enabled, name } of plugins) {
-      if (!enabled) {
-        onLog({ level: 'info', plugin: plugin.id, message: `Plugin ${name} disabled, skipping` });
-        stepIndex++;
-        continue;
-      }
+    // ── 3. Execute each enabled plugin ────────────────────────────────────────
+    for (const plugin of enabledPlugins) {
+      const pluginId   = plugin.manifest.id;
+      const pluginName = plugin.manifest.name;
+      const progress   = Math.round((stepIndex / totalSteps) * 82) + 8;
 
-      const progress = Math.round((stepIndex / totalSteps) * 85) + 8;
+      const pluginConfig = userId
+        ? await this.pluginRegistry.getPluginConfig(pluginId, userId)
+        : (plugin.manifest.defaultConfig ?? {});
 
       onProgress({
-        step: name,
+        step:          pluginName,
         stepIndex,
         totalSteps,
         progress,
-        message: `Running ${name}...`,
+        message:       `Running ${pluginName}...`,
         findingsCount: allFindings.length,
-        currentPlugin: plugin.id,
-        assessmentId: context.assessmentId,
+        currentPlugin: pluginId,
+        assessmentId:  context.assessmentId,
       });
 
-      onLog({ level: 'info', plugin: plugin.id, message: `Starting ${name}` });
+      onLog({ level: 'info', plugin: pluginId, message: `Starting ${pluginName}` });
 
-      try {
-        const result = await plugin.run(context);
-        allFindings.push(...result.findings);
+      const { findings, durationMs, status } = await this.pluginExecutor.executeInPipeline(
+        plugin,
+        context,
+        userId ?? 'system',
+        pluginConfig,
+      );
 
-        onLog({
-          level: 'info',
-          plugin: plugin.id,
-          message: `${name} completed: ${result.findings.length} findings in ${result.scanDuration}ms`,
-        });
+      allFindings.push(...findings);
+      plan.executed.push(pluginId);
+      plan.durationMs[pluginId]    = durationMs;
+      plan.findingCounts[pluginId] = findings.length;
 
-        if (result.error) {
-          onLog({ level: 'warn', plugin: plugin.id, message: result.error });
-        }
-      } catch (error) {
-        this.logger.error(`Plugin ${plugin.id} failed: ${error.message}`);
-        onLog({ level: 'error', plugin: plugin.id, message: `Plugin failed: ${error.message}` });
-      }
+      const logLevel = status === 'SUCCESS' ? 'info' : (status === 'TIMEOUT' ? 'warn' : 'error');
+      onLog({
+        level:   logLevel,
+        plugin:  pluginId,
+        message: status === 'SUCCESS'
+          ? `${pluginName} completed — ${findings.length} finding(s) in ${durationMs}ms`
+          : `${pluginName} ${status.toLowerCase()} after ${durationMs}ms`,
+      });
 
       stepIndex++;
     }
 
-    if (context.config.enableAiAnalysis && allFindings.length > 0) {
+    // ── 4. AI analysis (post-processor — NEVER blocks assessment completion) ──
+    let aiMeta: AiAnalysisMeta = {
+      provider:  'none',
+      model:     'none',
+      available: false,
+      analyzed:  0,
+      skipped:   allFindings.length,
+      durationMs: 0,
+      tokensUsed: 0,
+      reason:    'AI analysis disabled for this assessment',
+    };
+
+    if (context.config.enableAiAnalysis) {
       onProgress({
-        step: 'AI Analysis',
-        stepIndex: totalSteps - 1,
+        step:          'AI Analysis',
+        stepIndex:     totalSteps - 1,
         totalSteps,
-        progress: 88,
-        message: `Running AI analysis on ${allFindings.length} findings...`,
+        progress:      92,
+        message:       `AI analysis on ${allFindings.length} findings...`,
         findingsCount: allFindings.length,
         currentPlugin: 'ai-analysis',
-        assessmentId: context.assessmentId,
+        assessmentId:  context.assessmentId,
       });
 
       onLog({ level: 'info', plugin: 'ai-analysis', message: 'Starting AI-powered analysis' });
 
-      try {
-        await this.aiAnalysisService.analyzeFindings(allFindings, context);
-        onLog({ level: 'info', plugin: 'ai-analysis', message: 'AI analysis completed' });
-      } catch (error) {
+      aiMeta = await this.aiService.analyzeFindings(allFindings, context);
+
+      if (aiMeta.available) {
         onLog({
-          level: 'warn',
-          plugin: 'ai-analysis',
-          message: `AI analysis failed: ${error.message}. Continuing without AI enrichment.`,
+          level:   'info',
+          plugin:  'ai-analysis',
+          message: `AI analysis complete — ${aiMeta.analyzed} findings enriched by ${aiMeta.provider} in ${aiMeta.durationMs}ms`,
+        });
+      } else {
+        onLog({
+          level:   'warn',
+          plugin:  'ai-analysis',
+          message: `AI analysis skipped: ${aiMeta.reason ?? 'provider unavailable'}`,
         });
       }
     }
 
-    return allFindings;
-  }
-
-  private buildPluginPipeline(context: ScanContext) {
-    return [
-      {
-        plugin: new SecurityHeadersPlugin(),
-        enabled: context.config.enableSecurityHeaders,
-        name: 'Security Headers Analysis',
-      },
-      {
-        plugin: new CorsPlugin(),
-        enabled: context.config.enableCors,
-        name: 'CORS Analysis',
-      },
-      {
-        plugin: new BrokenAuthPlugin(),
-        enabled: context.config.enableBrokenAuth,
-        name: 'Broken Authentication',
-      },
-      {
-        plugin: new JwtAnalysisPlugin(),
-        enabled: context.config.enableJwtAnalysis,
-        name: 'JWT Analysis',
-      },
-      {
-        plugin: new BolaPlugin(),
-        enabled: context.config.enableBola,
-        name: 'Broken Object Level Authorization',
-      },
-      {
-        plugin: new BflaPlugin(),
-        enabled: context.config.enableBfla,
-        name: 'Broken Function Level Authorization',
-      },
-      {
-        plugin: new MassAssignmentPlugin(),
-        enabled: context.config.enableMassAssignment,
-        name: 'Mass Assignment',
-      },
-      {
-        plugin: new RateLimitPlugin(),
-        enabled: context.config.enableRateLimit,
-        name: 'Rate Limiting',
-      },
-      {
-        plugin: new SensitiveDataPlugin(),
-        enabled: context.config.enableSensitiveData,
-        name: 'Sensitive Data Exposure',
-      },
-      {
-        plugin: new SsrfPlugin(),
-        enabled: context.config.enableSsrf,
-        name: 'Server-Side Request Forgery',
-      },
-    ];
+    return { findings: allFindings, pluginPlan: plan, aiMeta };
   }
 }

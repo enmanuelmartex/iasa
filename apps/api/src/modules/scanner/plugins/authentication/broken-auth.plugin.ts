@@ -1,11 +1,25 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class BrokenAuthPlugin extends BasePlugin {
-  readonly id = 'broken-authentication';
-  readonly name = 'Broken Authentication';
-  readonly description = 'Tests for API2:2023 - Broken Authentication vulnerabilities';
-  readonly owaspCategories = ['API2:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'broken-authentication',
+    name: 'Broken Authentication',
+    version: '1.0.0',
+    description: 'Tests for API2:2023 - Broken Authentication vulnerabilities',
+    longDescription: 'Attempts to access protected endpoints without credentials and with malformed tokens to detect missing or weak authentication controls.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.AUTHENTICATION,
+    owaspMappings: ['API2:2023'],
+    cweIds: ['CWE-287', 'CWE-306'],
+    tags: ['authentication', 'authorization', 'jwt', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'http:write', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   async run(context: ScanContext): Promise<PluginResult> {
     const start = Date.now();

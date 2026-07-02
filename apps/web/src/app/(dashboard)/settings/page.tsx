@@ -22,20 +22,23 @@ import {
   Cpu,
   GitBranch,
   Zap,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { authApi } from '@/lib/api';
 import { toast } from 'sonner';
+import { AiConfigTab } from './ai-config-tab';
 
-type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'system' | 'about';
+type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'system' | 'about';
 
 const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
-  { id: 'general', label: 'General', icon: Settings2 },
-  { id: 'security', label: 'Security', icon: Shield },
-  { id: 'tokens', label: 'API Tokens', icon: Key },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'system', label: 'System', icon: Cpu },
-  { id: 'about', label: 'About', icon: Info },
+  { id: 'general',       label: 'General',          icon: Settings2 },
+  { id: 'security',      label: 'Security',          icon: Shield },
+  { id: 'tokens',        label: 'API Tokens',        icon: Key },
+  { id: 'notifications', label: 'Notifications',     icon: Bell },
+  { id: 'ai',            label: 'AI Configuration',  icon: Sparkles },
+  { id: 'system',        label: 'System',            icon: Cpu },
+  { id: 'about',         label: 'About',             icon: Info },
 ];
 
 export default function SettingsPage() {
@@ -80,12 +83,13 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          {activeTab === 'general' && <GeneralTab user={me} />}
-          {activeTab === 'security' && <SecurityTab />}
-          {activeTab === 'tokens' && <TokensTab />}
+          {activeTab === 'general'       && <GeneralTab user={me} />}
+          {activeTab === 'security'      && <SecurityTab />}
+          {activeTab === 'tokens'        && <TokensTab />}
           {activeTab === 'notifications' && <NotificationsTab />}
-          {activeTab === 'system' && <SystemTab />}
-          {activeTab === 'about' && <AboutTab />}
+          {activeTab === 'ai'            && <AiConfigTab />}
+          {activeTab === 'system'        && <SystemTab />}
+          {activeTab === 'about'         && <AboutTab />}
         </div>
       </div>
     </div>

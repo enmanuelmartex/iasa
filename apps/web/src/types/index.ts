@@ -81,17 +81,13 @@ export interface Assessment {
 }
 
 export interface AssessmentConfig {
-  enableBola: boolean;
-  enableBrokenAuth: boolean;
-  enableMassAssignment: boolean;
-  enableRateLimit: boolean;
-  enableBfla: boolean;
-  enableSsrf: boolean;
-  enableSecurityHeaders: boolean;
-  enableCors: boolean;
-  enableJwtAnalysis: boolean;
-  enableSensitiveData: boolean;
+  executionMode: 'all' | 'profile' | 'manual';
+  scanProfileId?: string;
+  manualPlugins?: string[];
   enableAiAnalysis: boolean;
+  maxRequestsPerEndpoint: number;
+  requestDelayMs: number;
+  timeoutMs: number;
 }
 
 export interface AssessmentSummary {
@@ -106,6 +102,84 @@ export interface AssessmentSummary {
   securityScore: number;
   riskLevel: string;
   owaspCoverage?: Record<string, number>;
+  /** Plugin execution plan — which ran, which were skipped, timing, finding counts */
+  pluginResults?: PluginExecutionPlan;
+  /** AI analysis metadata — provider, model, findings analyzed, reason if skipped */
+  aiStatus?: AiAnalysisMeta;
+}
+
+export interface PluginExecutionPlan {
+  available:     string[];
+  executed:      string[];
+  skipped:       string[];
+  skippedReason: Record<string, string>;
+  versions:      Record<string, string>;
+  durationMs:    Record<string, number>;
+  findingCounts: Record<string, number>;
+}
+
+export interface AiAnalysisMeta {
+  provider:   string;
+  model:      string;
+  available:  boolean;
+  analyzed:   number;
+  skipped:    number;
+  durationMs: number;
+  tokensUsed: number;
+  reason?:    string;
+}
+
+export interface AiProviderStatus {
+  provider:  string;
+  model:     string;
+  available: boolean;
+  reason?:   string;
+}
+
+export type AiProfile = 'minimal' | 'balanced' | 'complete' | 'custom';
+
+/** Per-provider config row from the API. One row exists per configured provider. */
+export interface AiProviderConfig {
+  provider:         string;
+  model:            string;
+  maskedKey?:       string;
+  hasKey:           boolean;
+  baseUrl?:         string;
+  isActive:         boolean;
+  profile:          AiProfile;
+  analyzeCritical:  boolean;
+  analyzeHigh:      boolean;
+  analyzeMedium:    boolean;
+  analyzeLow:       boolean;
+  executiveSummary: boolean;
+  maxTokens:        number;
+  temperature:      number;
+  timeoutMs:        number;
+  maxFindings:      number;
+  retryAttempts:    number;
+  configSource:     'database' | 'environment' | 'defaults';
+  lastTestedAt?:    string;
+  lastTestSuccess?: boolean;
+  lastTestMessage?: string;
+  configuredAt?:    string;
+  envHasKey:        boolean;
+  envModel?:        string;
+}
+
+export interface AiEnvStatus {
+  openai:  { apiKey: boolean; model: string };
+  grok:    { apiKey: boolean; model: string };
+  claude:  { apiKey: boolean; model: string };
+  gemini:  { apiKey: boolean; model: string };
+  ollama:  { baseUrl: string; model: string };
+  activeProvider: string;
+}
+
+export interface AiTestConnectionResult {
+  success:    boolean;
+  message:    string;
+  latencyMs?: number;
+  model?:     string;
 }
 
 export interface Finding {
@@ -196,6 +270,100 @@ export interface DashboardStats {
   findings: Record<string, number>;
   recentAssessments: Assessment[];
 }
+
+// =============================================================================
+// PLUGIN MANAGEMENT
+// =============================================================================
+
+export type PluginCategory =
+  | 'Authentication' | 'Authorization' | 'Headers' | 'Injection'
+  | 'API Design' | 'Performance' | 'Infrastructure' | 'Compliance'
+  | 'AI' | 'Cloud' | 'GraphQL' | 'gRPC' | 'SOAP';
+
+export type PluginExecutionStatus = 'SUCCESS' | 'FAILED' | 'TIMEOUT' | 'SKIPPED';
+
+export interface PluginConfigField {
+  key: string;
+  label: string;
+  description?: string;
+  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect';
+  default?: any;
+  options?: Array<{ value: string | number; label: string }>;
+  min?: number;
+  max?: number;
+  required?: boolean;
+}
+
+export interface Plugin {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  longDescription?: string;
+  author: string;
+  category: PluginCategory;
+  owaspMappings: string[];
+  cweIds: string[];
+  tags: string[];
+  isBuiltin: boolean;
+  isEnabled: boolean;
+  configSchema?: { fields: PluginConfigField[] };
+  defaultConfig?: Record<string, any>;
+  userConfig?: Record<string, any> | null;
+  permissions: string[];
+  documentationUrl?: string;
+  changelog?: string;
+  license: string;
+  stats?: {
+    totalExecutions: number;
+    avgDurationMs: number;
+    successRate?: number;
+    findingsBySeverity?: Record<string, number>;
+  };
+  recentExecutions?: PluginExecution[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PluginExecution {
+  id: string;
+  pluginId: string;
+  assessmentId?: string;
+  userId: string;
+  status: PluginExecutionStatus;
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  findingsCount: number;
+  errorMessage?: string;
+  createdAt: string;
+}
+
+export interface ScanProfile {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  userId?: string;
+  isSystem: boolean;
+  enabledPlugins: string[];
+  pluginConfigs?: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SinglePluginRunResult {
+  pluginId: string;
+  pluginName: string;
+  status: 'SUCCESS' | 'FAILED' | 'TIMEOUT';
+  findingsCount: number;
+  durationMs: number;
+  findings: any[];
+  error?: string;
+  executionId: string;
+}
+
+// =============================================================================
 
 export interface ScanProgress {
   step: string;

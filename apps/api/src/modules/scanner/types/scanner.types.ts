@@ -41,16 +41,8 @@ export interface EndpointParameter {
 }
 
 export interface ScanConfig {
-  enableBola: boolean;
-  enableBrokenAuth: boolean;
-  enableMassAssignment: boolean;
-  enableRateLimit: boolean;
-  enableBfla: boolean;
-  enableSsrf: boolean;
-  enableSecurityHeaders: boolean;
-  enableCors: boolean;
-  enableJwtAnalysis: boolean;
-  enableSensitiveData: boolean;
+  executionMode: 'all' | 'profile' | 'manual';
+  selectedPlugins?: string[];  // resolved plugin IDs for this scan
   enableAiAnalysis: boolean;
   maxRequestsPerEndpoint: number;
   requestDelayMs: number;
@@ -108,12 +100,16 @@ export interface ScanProgress {
 }
 
 export abstract class BasePlugin {
-  abstract readonly id: string;
-  abstract readonly name: string;
-  abstract readonly description: string;
-  abstract readonly owaspCategories: string[];
+  /** Full plugin manifest — single source of truth for metadata */
+  abstract readonly manifest: import('./plugin-manifest.types').PluginManifest;
 
-  abstract run(context: ScanContext): Promise<PluginResult>;
+  // Convenience getters so existing code doesn't break
+  get id(): string { return this.manifest.id; }
+  get name(): string { return this.manifest.name; }
+  get description(): string { return this.manifest.description; }
+  get owaspCategories(): string[] { return this.manifest.owaspMappings; }
+
+  abstract run(context: ScanContext, pluginConfig?: Record<string, any>): Promise<PluginResult>;
 
   protected buildRequestString(method: string, url: string, headers: Record<string, string>, body?: any): string {
     const headerLines = Object.entries(headers)

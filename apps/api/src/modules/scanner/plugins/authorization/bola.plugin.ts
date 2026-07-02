@@ -1,11 +1,25 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class BolaPlugin extends BasePlugin {
-  readonly id = 'bola';
-  readonly name = 'Broken Object Level Authorization';
-  readonly description = 'Tests for API1:2023 - BOLA/IDOR vulnerabilities';
-  readonly owaspCategories = ['API1:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'bola',
+    name: 'Broken Object Level Authorization',
+    version: '1.0.0',
+    description: 'Tests for API1:2023 - BOLA/IDOR vulnerabilities',
+    longDescription: 'Probes endpoints with ID path parameters using multiple object IDs to detect missing ownership checks that allow accessing other users\' resources.',
+    author: 'IASA Core Team',
+    license: 'MIT',
+    category: PluginCategory.AUTHORIZATION,
+    owaspMappings: ['API1:2023'],
+    cweIds: ['CWE-284', 'CWE-639'],
+    tags: ['authorization', 'bola', 'idor', 'owasp-top10'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: true,
+  };
 
   private readonly idPatterns = [
     /\{id\}/i, /\{userId\}/i, /\{user_id\}/i,

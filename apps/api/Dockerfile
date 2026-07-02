@@ -12,14 +12,21 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 
 COPY package.json bun.lockb* ./
+# Copy schema BEFORE bun install so @prisma/client postinstall can generate
+# with the correct schema and populate Bun's internal package cache correctly
+COPY prisma ./prisma
 RUN bun install
 
 COPY . .
 
-# Generate Prisma client
+# Pre-generate Prisma client (regenerated at runtime via entrypoint)
 RUN bunx prisma generate
 
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 4000
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bun", "run", "dev"]
 
 # =============================================================================
@@ -32,6 +39,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 
 COPY package.json bun.lockb* ./
+COPY prisma ./prisma
 RUN bun install --frozen-lockfile
 
 COPY . .
