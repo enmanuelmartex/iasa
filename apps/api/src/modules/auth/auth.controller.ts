@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -25,6 +25,15 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with email and password' })
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Public()
+  @Post('exchange-session')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Exchange a Better Auth session token for a JWT' })
+  async exchangeSession(@Body('token') token: string) {
+    if (!token) throw new BadRequestException('Session token is required');
+    return this.authService.exchangeSession(token);
   }
 
   @Get('me')

@@ -72,6 +72,15 @@ services:
       MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-3}
       REPORTS_DIR: /app/reports
       DOCKER_ENV: "true"
+      # Better Auth — generate a strong secret: openssl rand -base64 32
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-iasa-dev-secret-change-in-production-min-32-chars!!}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:4000}
+      # Google OAuth (optional — leave empty to disable the Google button)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Resend for invitation emails (optional — invite links appear in API logs when not set)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-onboarding@resend.dev}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -80,6 +89,7 @@ services:
       - ./apps/api/src:/app/src
       - ./apps/api/prisma:/app/prisma
       - ./apps/api/tsconfig.json:/app/tsconfig.json
+      - ./apps/api/nest-cli.json:/app/nest-cli.json
       - ./apps/api/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
       - api_reports:/app/reports
     networks:
@@ -99,6 +109,7 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api/v1}
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-IASA}
       NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-0.1.0}
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       - "${WEB_PORT:-3000}:3000"
     volumes:

@@ -149,7 +149,13 @@ export class AssessmentsService {
     });
   }
 
-  streamProgress(assessmentId: string, userId: string): Observable<MessageEvent> {
+  async streamProgress(assessmentId: string, userId: string): Promise<Observable<MessageEvent>> {
+    const assessment = await this.prisma.assessment.findFirst({
+      where: { id: assessmentId, project: { userId } },
+      select: { id: true },
+    });
+    if (!assessment) throw new NotFoundException('Assessment not found');
+
     const subject = new Subject<MessageEvent>();
     this.progressSubjects.set(assessmentId, subject);
 

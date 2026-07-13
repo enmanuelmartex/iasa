@@ -24,5 +24,12 @@
     }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "test"]
+  "exclude": ["node_modules", "dist", "test"],
+  "watchOptions": {
+    "watchFile": "fixedPollingInterval",
+    "watchDirectory": "fixedPollingInterval",
+    "fallbackPolling": "fixedInterval",
+    "synchronousWatchDirectory": true,
+    "excludeDirectories": ["node_modules", "dist"]
+  }
 }

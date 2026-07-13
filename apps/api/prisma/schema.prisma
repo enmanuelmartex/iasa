@@ -137,18 +137,25 @@ enum PluginExecutionStatus {
 // =============================================================================
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  password  String
-  role      Role     @default(ANALYST)
-  avatar    String?
-  isActive  Boolean  @default(true)
-  lastLogin DateTime?
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String?
+  role          Role      @default(ADMIN)
+  avatar        String?
+  isActive      Boolean   @default(true)
+  lastLogin     DateTime?
+  emailVerified Boolean   @default(false)
+  ownerId       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  owner           User?        @relation("OwnerMembers", fields: [ownerId], references: [id])
+  members         User[]       @relation("OwnerMembers")
+  sessions        Session[]
+  accounts        Account[]
+  sentInvitations Invitation[] @relation("InvitedByAdmin")
   projects         Project[]
   apiKeys          ApiKey[]
   auditLogs        AuditLog[]
@@ -173,6 +180,73 @@ model ApiKey {
   createdAt DateTime @default(now())
 
   @@map("api_keys")
+}
+
+// =============================================================================
+// BETTER AUTH — Sessions, Accounts, Verifications
+// =============================================================================
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verifications")
+}
+
+// =============================================================================
+// INVITATIONS — Custom workspace invitation system
+// =============================================================================
+
+model Invitation {
+  id          String    @id @default(cuid())
+  email       String
+  role        Role      @default(ANALYST)
+  token       String    @unique
+  invitedById String
+  invitedBy   User      @relation("InvitedByAdmin", fields: [invitedById], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  accepted    Boolean   @default(false)
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@map("invitations")
 }
 
 // =============================================================================

@@ -62,10 +62,10 @@ export class AssessmentsController {
 
   @Sse(':id/progress')
   @ApiOperation({ summary: 'Stream assessment progress via SSE' })
-  streamProgress(
+  async streamProgress(
     @Param('id') id: string,
     @CurrentUser() user: any,
-  ): Observable<MessageEvent> {
+  ): Promise<Observable<MessageEvent>> {
     return this.assessmentsService.streamProgress(id, user.id);
   }
 }

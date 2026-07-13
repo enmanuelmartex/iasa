@@ -3,9 +3,12 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
+import { Resend } from 'resend';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -26,6 +29,8 @@ const SELECT_PUBLIC = {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
@@ -177,5 +182,132 @@ export class UsersService {
     });
 
     return { success: true };
+  }
+
+  // ── Invitation system ─────────────────────────────────────────────────────────
+
+  async sendInvitation(dto: { email: string; role?: string }, actorId: string) {
+    const email = dto.email.toLowerCase().trim();
+    const role  = dto.role ?? 'ANALYST';
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new ConflictException('A user with this email already exists');
+
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // If a pending invite exists, renew it and resend instead of erroring
+    const pending = await (this.prisma as any).invitation.findFirst({
+      where: { email, accepted: false },
+    });
+
+    let token: string;
+    if (pending) {
+      token = crypto.randomBytes(32).toString('hex');
+      await (this.prisma as any).invitation.update({
+        where: { id: pending.id },
+        data: { token, role, expiresAt, invitedById: actorId },
+      });
+    } else {
+      token = crypto.randomBytes(32).toString('hex');
+      await (this.prisma as any).invitation.create({
+        data: { email, role, token, invitedById: actorId, expiresAt },
+      });
+    }
+
+    await this.sendInvitationEmail(email, token, role, actorId).catch((err) => {
+      this.logger.error(`Failed to send invitation email to ${email}: ${err.message}`);
+    });
+
+    this.audit.log({
+      userId: actorId,
+      action: 'CREATE',
+      resource: 'invitation',
+      resourceId: token.slice(0, 8),
+      metadata: { email, role, resent: !!pending },
+    });
+
+    return { success: true, expiresAt, resent: !!pending };
+  }
+
+  async verifyInvitation(token: string) {
+    const invite = await (this.prisma as any).invitation.findFirst({
+      where: { token, accepted: false, expiresAt: { gt: new Date() } },
+      include: { invitedBy: { select: { name: true, email: true } } },
+    });
+    if (!invite) throw new NotFoundException('Invitation not found or has expired');
+
+    return {
+      email:     invite.email,
+      role:      invite.role,
+      invitedBy: invite.invitedBy.name,
+      expiresAt: invite.expiresAt,
+    };
+  }
+
+  async acceptInvitation(token: string, userId: string) {
+    const invite = await (this.prisma as any).invitation.findFirst({
+      where: { token, accepted: false, expiresAt: { gt: new Date() } },
+    });
+    if (!invite) throw new NotFoundException('Invitation not found or has expired');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { role: invite.role as Role, ownerId: invite.invitedById },
+    });
+
+    await (this.prisma as any).invitation.update({
+      where: { id: invite.id },
+      data: { accepted: true, acceptedAt: new Date() },
+    });
+
+    return { success: true };
+  }
+
+  private async sendInvitationEmail(
+    email: string,
+    token: string,
+    role: string,
+    actorId: string,
+  ) {
+    const inviter    = await this.prisma.user.findUnique({
+      where: { id: actorId },
+      select: { name: true },
+    });
+    const frontendUrl = this.config.get('FRONTEND_URL', 'http://localhost:3000');
+    const inviteLink  = `${frontendUrl}/accept-invite?token=${token}`;
+    const apiKey      = this.config.get('RESEND_API_KEY');
+
+    if (!apiKey) {
+      this.logger.warn(`Resend not configured — invitation link for ${email}: ${inviteLink}`);
+      return;
+    }
+
+    const from = this.config.get('RESEND_FROM', 'onboarding@resend.dev');
+    const resend = new Resend(apiKey);
+
+    const { error } = await resend.emails.send({
+      from,
+      to:      email,
+      subject: `You've been invited to IASA by ${inviter?.name ?? 'an admin'}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+          <h2 style="color:#7c3aed">You're invited to IASA</h2>
+          <p><strong>${inviter?.name ?? 'An admin'}</strong> has invited you to join their
+          security workspace as <strong>${role}</strong>.</p>
+          <p>
+            <a href="${inviteLink}"
+               style="background:#7c3aed;color:#fff;padding:12px 24px;border-radius:8px;
+                      text-decoration:none;display:inline-block;margin:16px 0;font-weight:600">
+              Accept Invitation
+            </a>
+          </p>
+          <p style="color:#666;font-size:13px">This invitation expires in 7 days.<br>
+          If you didn't expect this, you can safely ignore this email.</p>
+        </div>
+      `,
+    });
+
+    if (error) throw new Error(error.message);
+    this.logger.log(`Invitation email sent to ${email} via Resend`);
   }
 }

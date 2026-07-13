@@ -4,6 +4,9 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
+import * as express from 'express';
+import { toNodeHandler } from 'better-auth/node';
+import { auth } from './lib/auth';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -12,14 +15,47 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['log', 'error', 'warn', 'debug'],
     bufferLogs: true,
+    // Disable global body parser — we apply it manually below so that Better Auth
+    // can handle its own /api/auth routes without a pre-parsed body.
+    bodyParser: false,
   });
 
-  const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT', 4000);
-  const frontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
-  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  // ── Better Auth ──────────────────────────────────────────────────────────────
+  // Mounted FIRST so it intercepts /api/auth/* before NestJS routing.
+  const betterAuthHandler = toNodeHandler(auth);
+  const authCorsOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+  app.use((req: any, res: any, next: any) => {
+    if (!req.originalUrl?.startsWith('/api/auth')) return next();
 
-  // Security headers
+    // Handle CORS for all /api/auth/* routes (Better Auth doesn't respond to OPTIONS)
+    res.setHeader('Access-Control-Allow-Origin', authCorsOrigin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Cookie,Set-Cookie');
+
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+
+    req.url = req.originalUrl;
+    return betterAuthHandler(req, res);
+  });
+
+  // ── Body parser for NestJS routes (/api/v1/*) ────────────────────────────────
+  const jsonParser       = express.json({ limit: '10mb' });
+  const urlencodedParser = express.urlencoded({ extended: true });
+  app.use((req: any, res: any, next: any) => {
+    if (req.originalUrl?.startsWith('/api/auth')) return next();
+    jsonParser(req, res, (err: any) => {
+      if (err) return next(err);
+      urlencodedParser(req, res, next);
+    });
+  });
+
+  // ── Security headers ─────────────────────────────────────────────────────────
+  const configService = app.get(ConfigService);
+  const port        = configService.get<number>('PORT', 4000);
+  const frontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+  const nodeEnv     = configService.get<string>('NODE_ENV', 'development');
+
   app.use(
     helmet({
       crossOriginEmbedderPolicy: false,
@@ -27,7 +63,7 @@ async function bootstrap() {
     }),
   );
 
-  // CORS
+  // ── CORS for NestJS routes ────────────────────────────────────────────────────
   app.enableCors({
     origin: frontendUrl,
     credentials: true,
@@ -35,15 +71,13 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   });
 
-  // Global prefix
+  // ── Global prefix ─────────────────────────────────────────────────────────────
   app.setGlobalPrefix('api/v1');
 
-  // API Versioning
-  app.enableVersioning({
-    type: VersioningType.URI,
-  });
+  // ── API Versioning ────────────────────────────────────────────────────────────
+  app.enableVersioning({ type: VersioningType.URI });
 
-  // Global pipes
+  // ── Global pipes ──────────────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -53,29 +87,24 @@ async function bootstrap() {
     }),
   );
 
-  // Global filters
+  // ── Global filters & interceptors ─────────────────────────────────────────────
   app.useGlobalFilters(new HttpExceptionFilter());
-
-  // Global interceptors
   app.useGlobalInterceptors(new LoggingInterceptor());
 
-  // Swagger documentation (non-production)
+  // ── Swagger (non-production) ──────────────────────────────────────────────────
   if (nodeEnv !== 'production') {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('IASA API')
       .setDescription(
-        '**Intelligent API Security Assessment** — Automated API security testing and vulnerability detection platform.\n\n' +
-        'This API provides endpoints for managing projects, running security assessments, and viewing findings.',
+        '**Intelligent API Security Assessment** — Automated API security testing platform.\n\n' +
+        'Better Auth endpoints are at `/api/auth/*` (not under `/api/v1`). ' +
+        'All domain routes require a `Bearer` JWT obtained via `POST /api/v1/auth/exchange-session`.',
       )
       .setVersion('1.0.0')
-      .addBearerAuth(
-        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-        'JWT',
-      )
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'JWT')
       .addApiKey({ type: 'apiKey', in: 'header', name: 'X-API-Key' }, 'ApiKey')
       .addTag('Auth', 'Authentication and authorization')
       .addTag('Projects', 'Project management')
-      .addTag('API Specs', 'OpenAPI specification management')
       .addTag('Assessments', 'Security assessment management')
       .addTag('Findings', 'Vulnerability findings')
       .addTag('Reports', 'Report generation and download')
@@ -84,10 +113,7 @@ async function bootstrap() {
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);
     SwaggerModule.setup('api/docs', app, document, {
-      swaggerOptions: {
-        persistAuthorization: true,
-        displayRequestDuration: true,
-      },
+      swaggerOptions: { persistAuthorization: true, displayRequestDuration: true },
     });
   }
 
@@ -97,9 +123,10 @@ async function bootstrap() {
   ╔══════════════════════════════════════════════════════╗
   ║                                                      ║
   ║   IASA — Intelligent API Security Assessment         ║
-  ║   Version 0.1.0                                      ║
+  ║   Version 0.2.0                                      ║
   ║                                                      ║
   ║   API:  http://localhost:${port}/api/v1                ║
+  ║   Auth: http://localhost:${port}/api/auth              ║
   ║   Docs: http://localhost:${port}/api/docs              ║
   ║   Env:  ${nodeEnv.padEnd(42)}║
   ║                                                      ║

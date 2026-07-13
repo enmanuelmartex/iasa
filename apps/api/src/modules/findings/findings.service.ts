@@ -14,11 +14,13 @@ export class FindingsService {
   }) {
     return this.prisma.finding.findMany({
       where: {
-        assessment: { project: { userId } },
+        assessment: {
+          project: { userId },
+          ...(filters?.projectId ? { projectId: filters.projectId } : {}),
+        },
         ...(filters?.severity ? { severity: filters.severity as any } : {}),
         ...(filters?.status ? { status: filters.status as any } : {}),
         ...(filters?.assessmentId ? { assessmentId: filters.assessmentId } : {}),
-        ...(filters?.projectId ? { assessment: { projectId: filters.projectId } } : {}),
         ...(filters?.owaspCategory ? { owaspCategory: filters.owaspCategory } : {}),
       },
       include: {

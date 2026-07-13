@@ -10,10 +10,12 @@ import {
   Query,
   ParseIntPipe,
   DefaultValuePipe,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { AuditService } from '../audit/audit.service';
@@ -22,6 +24,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SetStatusDto } from './dto/set-status.dto';
+import { InviteUserDto } from './dto/invite-user.dto';
 import { AuditAction } from '@prisma/client';
 
 @Controller('users')
@@ -32,6 +35,8 @@ export class UsersController {
     private users: UsersService,
     private audit: AuditService,
   ) {}
+
+  // ── Static routes first (must come before :id to avoid param capture) ────────
 
   @Get()
   findAll() {
@@ -54,6 +59,27 @@ export class UsersController {
       offset,
     });
   }
+
+  @Post('invite')
+  invite(@Body() dto: InviteUserDto, @CurrentUser() actor: any) {
+    return this.users.sendInvitation(dto, actor.id);
+  }
+
+  @Public()
+  @Roles()
+  @Get('verify-invite')
+  verifyInvite(@Query('token') token: string) {
+    if (!token) throw new NotFoundException('Token is required');
+    return this.users.verifyInvitation(token);
+  }
+
+  @Roles()
+  @Post('accept-invite')
+  acceptInvite(@Body('token') token: string, @CurrentUser() user: any) {
+    return this.users.acceptInvitation(token, user.id);
+  }
+
+  // ── Dynamic :id routes ────────────────────────────────────────────────────
 
   @Get(':id')
   findOne(@Param('id') id: string) {

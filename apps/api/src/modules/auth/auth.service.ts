@@ -24,23 +24,29 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
+    const email = dto.email.toLowerCase().trim();
+
     const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email },
     });
 
     if (existing) {
       throw new ConflictException('Email already registered');
     }
 
+    // Self-registration always creates an ADMIN owner.
+    // Analysts are created by Admins from the Users panel, never via self-register.
+    const role = 'ADMIN';
+
     const rounds = this.configService.get<number>('security.bcryptRounds', 12);
     const passwordHash = await bcrypt.hash(dto.password, rounds);
 
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         name: dto.name,
         password: passwordHash,
-        role: 'ANALYST',
+        role,
       },
       select: {
         id: true,
@@ -66,14 +72,17 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: dto.email.trim(), mode: 'insensitive' } },
     });
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (!user.password) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
     const passwordMatch = await bcrypt.compare(dto.password, user.password);
     if (!passwordMatch) {
       throw new UnauthorizedException('Invalid credentials');
@@ -118,6 +127,29 @@ export class AuthService {
         createdAt: true,
       },
     });
+  }
+
+  async exchangeSession(sessionToken: string) {
+    const session = await (this.prisma as any).session.findFirst({
+      where: { token: sessionToken, expiresAt: { gt: new Date() } },
+      include: { user: true },
+    });
+
+    if (!session) throw new UnauthorizedException('Invalid or expired session');
+
+    const user = session.user as any;
+    if (!user.isActive) throw new UnauthorizedException('Account is inactive');
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    }).catch(() => {});
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    return {
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      ...tokens,
+    };
   }
 
   private async generateTokens(userId: string, email: string, role: string) {

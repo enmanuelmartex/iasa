@@ -24,5 +24,6 @@ bunx prisma db push --schema=/app/prisma/schema.prisma --accept-data-loss
 echo "🧹 Clearing TypeScript incremental build cache..."
 rm -f /app/dist/tsconfig.tsbuildinfo
 
+
 echo "🚀 Starting IASA API..."
 exec "$@"

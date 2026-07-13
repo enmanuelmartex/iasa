@@ -4,12 +4,14 @@ import { ScannerService } from './scanner.service';
 import { ScannerProcessor } from './scanner.processor';
 import { AiModule } from '../ai/ai.module';
 import { PluginsModule } from '../plugins/plugins.module';
+import { ReportsModule } from '../reports/reports.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: 'scanner' }),
     AiModule,
     PluginsModule,
+    ReportsModule,
   ],
   providers: [ScannerService, ScannerProcessor],
   exports: [ScannerService],

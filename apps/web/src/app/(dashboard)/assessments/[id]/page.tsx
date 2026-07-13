@@ -147,6 +147,7 @@ export default function AssessmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'findings' | 'plugins' | 'logs'>('overview');
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   const { data: assessment, refetch } = useQuery<Assessment>({
     queryKey: ['assessment', id],
@@ -163,7 +164,8 @@ export default function AssessmentDetailPage() {
     if (!isRunning) return;
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-    const es = new EventSource(`${apiUrl}/assessments/${id}/progress`);
+    const token = typeof window !== 'undefined' ? localStorage.getItem('iasa_token') ?? '' : '';
+    const es = new EventSource(`${apiUrl}/assessments/${id}/progress?token=${encodeURIComponent(token)}`);
 
     es.onmessage = (event) => {
       try {
@@ -222,10 +224,18 @@ export default function AssessmentDetailPage() {
             {(['HTML', 'JSON', 'SARIF', 'MARKDOWN'] as const).map((fmt) => (
               <button
                 key={fmt}
-                onClick={() => reportsApi.generate(id, fmt)}
-                className="flex items-center gap-1.5 text-xs border border-slate-700 text-slate-300 hover:text-white hover:border-slate-600 px-3 py-1.5 rounded-lg transition-colors"
+                disabled={downloading === fmt}
+                onClick={async () => {
+                  setDownloading(fmt);
+                  try { await reportsApi.generate(id, fmt); }
+                  finally { setDownloading(null); }
+                }}
+                className="flex items-center gap-1.5 text-xs border border-slate-700 text-slate-300 hover:text-white hover:border-slate-600 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-wait"
               >
-                <Download className="w-3 h-3" />
+                {downloading === fmt
+                  ? <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" />
+                  : <Download className="w-3 h-3" />
+                }
                 {fmt}
               </button>
             ))}

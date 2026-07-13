@@ -7,6 +7,8 @@ import { ScannerService } from './scanner.service';
 import { ScanContext, BasePlugin } from './types/scanner.types';
 import { resolveTargetUrl } from '../../common/utils/url-resolver.util';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
+import { ReportGeneratorService } from '../reports/report-generator.service';
+import { ReportsService } from '../reports/reports.service';
 
 interface JobData {
   assessmentId: string;
@@ -20,10 +22,12 @@ export class ScannerProcessor extends WorkerHost {
   private readonly logger = new Logger(ScannerProcessor.name);
 
   constructor(
-    private prisma:          PrismaService,
-    private scannerService:  ScannerService,
-    private eventEmitter:    EventEmitter2,
-    private pluginRegistry:  PluginRegistryService,
+    private prisma:           PrismaService,
+    private scannerService:   ScannerService,
+    private eventEmitter:     EventEmitter2,
+    private pluginRegistry:   PluginRegistryService,
+    private reportGenerator:  ReportGeneratorService,
+    private reportsService:   ReportsService,
   ) {
     super();
   }
@@ -206,6 +210,11 @@ export class ScannerProcessor extends WorkerHost {
         },
       });
 
+      // Auto-generate a JSON report so the reports list is populated immediately
+      this.autoGenerateReport(assessmentId, userId).catch((err) =>
+        this.logger.warn(`Auto-report generation failed for ${assessmentId}: ${err.message}`),
+      );
+
       this.emit(assessmentId, {
         step:          'Completed',
         stepIndex:     12,
@@ -263,6 +272,33 @@ export class ScannerProcessor extends WorkerHost {
   private async addLog(assessmentId: string, level: string, plugin: string, message: string) {
     await this.prisma.assessmentLog.create({
       data: { assessmentId, level, plugin, message },
+    });
+  }
+
+  private async autoGenerateReport(assessmentId: string, userId?: string) {
+    const assessment = await this.prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      include: {
+        project: { select: { id: true, name: true, baseUrl: true, environment: true } },
+        summary: true,
+        findings: {
+          orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
+          include: { endpoint: { select: { path: true, method: true } } },
+        },
+      },
+    });
+    if (!assessment) return;
+
+    const content = this.reportGenerator.generateJson(assessment);
+    const projectName = (assessment.project as any).name ?? 'report';
+    const ts = new Date().toISOString().split('T')[0];
+
+    await this.reportsService.createRecord({
+      assessmentId,
+      type:     'TECHNICAL',
+      format:   'JSON',
+      title:    `Auto-generated JSON — ${projectName} — ${ts}`,
+      fileSize: Buffer.byteLength(content, 'utf8'),
     });
   }
 

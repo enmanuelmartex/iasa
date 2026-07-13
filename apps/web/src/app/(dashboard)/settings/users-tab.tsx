@@ -15,6 +15,7 @@ import {
   Trash2,
   Key,
   ChevronDown,
+  Mail,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usersApi } from '@/lib/api';
@@ -58,6 +59,89 @@ function StatusBadge({ isActive }: { isActive: boolean }) {
     >
       {isActive ? 'Active' : 'Disabled'}
     </span>
+  );
+}
+
+// ── Invite by Email Modal ─────────────────────────────────────────────────────
+
+function InviteUserModal({ onClose }: { onClose: () => void }) {
+  const [email, setEmail] = useState('');
+  const [role, setRole]   = useState('ANALYST');
+
+  const inviteMut = useMutation({
+    mutationFn: () => usersApi.invite({ email: email.trim(), role }),
+    onSuccess: (data: any) => {
+      toast.success(data?.resent ? `Invitation resent to ${email}` : `Invitation sent to ${email}`);
+      onClose();
+    },
+    onError: (err: any) =>
+      toast.error(err.response?.data?.message ?? 'Failed to send invitation'),
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    inviteMut.mutate();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <h2 className="text-base font-semibold text-white mb-1">Invite a team member</h2>
+        <p className="text-xs text-slate-500 mb-5">
+          They'll receive an email with a link to create their account.
+          {!process.env.NEXT_PUBLIC_SMTP_CONFIGURED && (
+            <span className="block mt-1 text-amber-400">
+              Note: SMTP not configured — the invite link will appear in API logs.
+            </span>
+          )}
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              Email address
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              placeholder="analyst@company.com"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">Role</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
+            >
+              <option value="ANALYST">Analyst — can run scans and view findings</option>
+              <option value="VIEWER">Viewer — read-only access</option>
+            </select>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg py-2 text-sm transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={inviteMut.isPending || !email.trim()}
+              className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-medium rounded-lg py-2 text-sm transition-colors flex items-center justify-center gap-1.5"
+            >
+              {inviteMut.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Send invitation
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -355,6 +439,7 @@ function UserRowActions({
 
 export function UsersTab({ currentUserId }: { currentUserId: string }) {
   const [showCreate, setShowCreate] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null);
   const [search, setSearch] = useState('');
 
@@ -379,13 +464,22 @@ export function UsersTab({ currentUserId }: { currentUserId: string }) {
               Manage platform users and role assignments
             </p>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/20 hover:border-violet-500/40 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New user
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowInvite(true)}
+              className="flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 hover:border-emerald-500/40 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              Invite by email
+            </button>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/20 hover:border-violet-500/40 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New user
+            </button>
+          </div>
         </div>
 
         <div className="mb-4">
@@ -465,6 +559,7 @@ export function UsersTab({ currentUserId }: { currentUserId: string }) {
         </div>
       </div>
 
+      {showInvite && <InviteUserModal onClose={() => setShowInvite(false)} />}
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} />}
       {resetTarget && <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />}
     </div>

@@ -42,11 +42,16 @@ export const api = createApiClient();
 
 // Auth
 export const authApi = {
+  // Legacy email/password login (kept for existing accounts with User.password)
   login: (data: { email: string; password: string }) =>
     api.post('/auth/login', data).then((r) => r.data),
+  // Legacy self-registration
   register: (data: { name: string; email: string; password: string }) =>
     api.post('/auth/register', data).then((r) => r.data),
   me: () => api.get('/auth/me').then((r) => r.data),
+  // Exchange a Better Auth session token for a JWT used by all domain routes
+  exchangeSession: (sessionToken: string) =>
+    api.post('/auth/exchange-session', { token: sessionToken }).then((r) => r.data),
 };
 
 // Projects
@@ -165,6 +170,13 @@ export const usersApi = {
   remove: (id: string) => api.delete(`/users/${id}`).then((r) => r.data),
   auditLogs: (params?: { limit?: number; offset?: number; userId?: string; action?: string; resource?: string }) =>
     api.get('/users/audit-logs', { params }).then((r) => r.data),
+  // Invitation system
+  invite: (data: { email: string; role?: string }) =>
+    api.post('/users/invite', data).then((r) => r.data),
+  verifyInvite: (token: string) =>
+    api.get('/users/verify-invite', { params: { token } }).then((r) => r.data),
+  acceptInvite: (token: string) =>
+    api.post('/users/accept-invite', { token }).then((r) => r.data),
 };
 
 // Reports
@@ -178,12 +190,22 @@ export const reportsApi = {
     api.get(`/reports/assessment/${assessmentId}`).then((r) => r.data),
   get: (id: string) => api.get(`/reports/${id}`).then((r) => r.data),
   delete: (id: string) => api.delete(`/reports/${id}`).then((r) => r.data),
-  generate: (
+  generate: async (
     assessmentId: string,
     format: 'JSON' | 'HTML' | 'MARKDOWN' | 'SARIF',
     type: 'EXECUTIVE' | 'TECHNICAL' | 'DEVELOPER' | 'COMPLIANCE' = 'TECHNICAL',
   ) => {
-    const url = `${API_URL}/reports/assessment/${assessmentId}/generate?format=${format}&type=${type}`;
-    window.open(url, '_blank');
+    const response = await api.get(
+      `/reports/assessment/${assessmentId}/generate`,
+      { params: { format, type }, responseType: 'blob' },
+    );
+    const ext = { JSON: 'json', HTML: 'html', MARKDOWN: 'md', SARIF: 'sarif' }[format] ?? 'txt';
+    const blob = new Blob([response.data], { type: response.headers['content-type'] });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `iasa-report-${assessmentId.slice(0, 8)}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
   },
 };
