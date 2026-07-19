@@ -9,7 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProjectDto, SaveProjectDraftDto, UpdateProjectDto } from './dto/create-project.dto';
 import SwaggerParser = require('swagger-parser');
 import axios from 'axios';
-import { resolveTargetUrl } from '../../common/utils/url-resolver.util';
+import { assertSafeRemoteUrl, resolveTargetUrl } from '../../common/utils/url-resolver.util';
 
 @Injectable()
 export class ProjectsService {
@@ -27,10 +27,22 @@ export class ProjectsService {
         _count: {
           select: { assessments: true },
         },
+        // Findings hang off assessments, so the listing metrics are derived here
+        // rather than counted per project. Narrow select: status + findings count.
+        assessments: {
+          orderBy: { createdAt: 'desc' },
+          select: { status: true, _count: { select: { findings: true } } },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
-    return projects.map((project) => this.toProjectResponse(project));
+
+    return projects.map(({ assessments, ...project }) => ({
+      ...this.toProjectResponse(project),
+      // Total findings across every scan of the project, and the newest scan's status.
+      findingsCount: assessments.reduce((total, a) => total + a._count.findings, 0),
+      lastScanStatus: assessments[0]?.status ?? null,
+    }));
   }
 
   async findOne(id: string, userId: string) {
@@ -139,12 +151,20 @@ export class ProjectsService {
   async importOpenApiFromUrl(projectId: string, userId: string, url: string) {
     await this.assertOwner(projectId, userId);
 
-    const resolvedUrl = resolveTargetUrl(url);
-    this.logger.log(`Importing OpenAPI spec from URL: ${resolvedUrl}`);
+    const validatedUrl = await assertSafeRemoteUrl(url);
+    const resolvedUrl = resolveTargetUrl(validatedUrl);
+    this.logger.log(`Importing OpenAPI spec from ${new URL(validatedUrl).hostname}`);
 
     let rawSpec: any;
     try {
-      const response = await axios.get(resolvedUrl, { timeout: 15000 });
+      const response = await axios.get(resolvedUrl, {
+        timeout: 15000,
+        maxRedirects: 0,
+        maxContentLength: 5 * 1024 * 1024,
+        maxBodyLength: 5 * 1024 * 1024,
+        responseType: 'json',
+        headers: { Accept: 'application/json, application/yaml, text/yaml' },
+      });
       rawSpec = response.data;
     } catch (error) {
       this.logger.warn(`Specification URL import failed: ${error instanceof Error ? error.message : 'unknown error'}`);

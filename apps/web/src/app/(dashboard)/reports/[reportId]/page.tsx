@@ -26,7 +26,7 @@ export default function ReportDetailPage() {
   const summary = data.assessment?.summary;
   const findings = data.assessment?.findings ?? [];
   const download = async () => {
-    try { await reportsApi.generate(data.assessmentId, data.format === 'PDF' ? 'HTML' : data.format, data.type); toast.success('Report downloaded'); }
+    try { await reportsApi.generate(data.assessmentId, data.format, data.type); toast.success('Report downloaded'); }
     catch { toast.error('The report could not be downloaded.'); }
   };
 

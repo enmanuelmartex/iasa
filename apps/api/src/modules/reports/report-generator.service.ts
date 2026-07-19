@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { existsSync } from 'node:fs';
+import puppeteer from 'puppeteer-core';
 
 type ReportType = 'TECHNICAL' | 'EXECUTIVE' | 'DEVELOPER' | 'COMPLIANCE';
 
@@ -61,6 +63,7 @@ export class ReportGeneratorService {
         impact: f.impact,
         remediation: f.remediation,
         references: f.references,
+        aiAnalysis: f.aiAnalysis,
         status: f.status,
       })),
     };
@@ -226,6 +229,7 @@ export class ReportGeneratorService {
         <div class="text">${esc(f.description ?? '')}</div>
         ${f.impact ? `<div class="section-label">Impact</div><div class="text">${esc(f.impact)}</div>` : ''}
         ${f.remediation ? `<div class="section-label">Remediation</div><div class="text remediation">${esc(f.remediation)}</div>` : ''}
+        ${f.aiAnalysis ? `<div class="section-label">AI security enrichment</div><div class="text ai-box">${f.aiAnalysis.technicalAnalysis ? `<strong>Technical analysis:</strong> ${esc(f.aiAnalysis.technicalAnalysis)}<br>` : ''}${f.aiAnalysis.businessImpact ? `<strong>Business impact:</strong> ${esc(f.aiAnalysis.businessImpact)}<br>` : ''}${Array.isArray(f.aiAnalysis.securityBestPractices) ? `<strong>Best practices:</strong><ul>${f.aiAnalysis.securityBestPractices.map((item: string) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}${Array.isArray(f.aiAnalysis.validationSteps) ? `<strong>Validation:</strong><ul>${f.aiAnalysis.validationSteps.map((item: string) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>` : ''}
         ${f.references?.length ? `<div class="section-label">References</div><ul class="refs">${f.references.map((r: string) => `<li><a href="${esc(r)}">${esc(r)}</a></li>`).join('')}</ul>` : ''}
       </div>`;
     }).join('');
@@ -277,6 +281,8 @@ export class ReportGeneratorService {
   .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; margin-top: 10px; margin-bottom: 4px; }
   .text { font-size: 12px; color: #475569; }
   .remediation { color: #166534; background: #f0fdf4; padding: 8px; border-radius: 6px; border-left: 3px solid #22c55e; }
+  .ai-box { background: #eff6ff; border-left: 3px solid #3b82f6; padding: 8px; border-radius: 6px; }
+  .ai-box ul { padding-left: 18px; margin: 4px 0 8px; }
   .refs { padding-left: 16px; font-size: 11px; color: #64748b; }
   .refs a { color: #6366f1; }
   /* Print button */
@@ -329,6 +335,31 @@ export class ReportGeneratorService {
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────
+
+  async generatePdf(assessment: any, type: ReportType): Promise<Buffer> {
+    const browser = await puppeteer.launch({
+      executablePath: this.findBrowserExecutable(),
+      headless: true,
+      args: process.env.CHROMIUM_DISABLE_SANDBOX === 'true'
+        ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        : ['--disable-dev-shm-usage'],
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(this.generateHtml(assessment, type), { waitUntil: 'domcontentloaded' });
+      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '14mm', right: '12mm', bottom: '14mm', left: '12mm' } });
+      return Buffer.from(pdf);
+    } finally {
+      await browser.close();
+    }
+  }
+
+  private findBrowserExecutable(): string {
+    const candidates = [process.env.CHROMIUM_EXECUTABLE_PATH, 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'].filter(Boolean) as string[];
+    const executable = candidates.find((candidate) => existsSync(candidate));
+    if (!executable) throw new Error('PDF generation requires Chromium. Set CHROMIUM_EXECUTABLE_PATH.');
+    return executable;
+  }
 
   private sevCard(severity: string, count: number): string {
     const color = SEVERITY_COLOR[severity] ?? '#6b7280';

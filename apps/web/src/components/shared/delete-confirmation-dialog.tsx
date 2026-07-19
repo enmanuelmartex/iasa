@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { IconTrash } from '@tabler/icons-react';
+import { Trash2Icon } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +21,8 @@ type DeleteConfirmationDialogProps = {
   description: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** Shown on the destructive button while the request is in flight. */
+  deletingLabel?: string;
   isDeleting?: boolean;
   open?: boolean;
   onOpenChange?: (_open: boolean) => void;
@@ -33,6 +35,7 @@ export function DeleteConfirmationDialog({
   description,
   confirmLabel = 'Delete',
   cancelLabel = 'Cancel',
+  deletingLabel = 'Deleting...',
   isDeleting = false,
   open: controlledOpen,
   onOpenChange,
@@ -59,7 +62,7 @@ export function DeleteConfirmationDialog({
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
           <AlertDialogMedia className="bg-destructive/10 text-destructive dark:bg-destructive/20 dark:text-destructive">
-            <IconTrash />
+            <Trash2Icon />
           </AlertDialogMedia>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
@@ -67,7 +70,7 @@ export function DeleteConfirmationDialog({
         <AlertDialogFooter>
           <AlertDialogCancel variant="ghost" disabled={isDeleting}>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction variant="destructive" disabled={isDeleting} aria-busy={isDeleting || undefined} onClick={confirm}>
-            {isDeleting ? 'Deleting...' : confirmLabel}
+            {isDeleting ? deletingLabel : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

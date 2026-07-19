@@ -195,14 +195,14 @@ export const reportsApi = {
   delete: (id: string) => api.delete(`/reports/${id}`).then((r) => r.data),
   generate: async (
     assessmentId: string,
-    format: 'JSON' | 'HTML' | 'MARKDOWN' | 'SARIF',
+    format: 'PDF' | 'JSON' | 'HTML' | 'MARKDOWN' | 'SARIF',
     type: 'EXECUTIVE' | 'TECHNICAL' | 'DEVELOPER' | 'COMPLIANCE' = 'TECHNICAL',
   ) => {
     const response = await api.get(
       `/reports/assessment/${assessmentId}/generate`,
       { params: { format, type }, responseType: 'blob' },
     );
-    const ext = { JSON: 'json', HTML: 'html', MARKDOWN: 'md', SARIF: 'sarif' }[format] ?? 'txt';
+    const ext = { PDF: 'pdf', JSON: 'json', HTML: 'html', MARKDOWN: 'md', SARIF: 'sarif' }[format] ?? 'txt';
     const rawContentType = response.headers['content-type'];
     const contentType = typeof rawContentType === 'string' ? rawContentType : undefined;
     const blob = new Blob([response.data], { type: contentType });

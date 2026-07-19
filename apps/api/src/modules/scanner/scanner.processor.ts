@@ -218,7 +218,7 @@ export class ScannerProcessor extends WorkerHost {
         },
       });
 
-      // Auto-generate a JSON report so the reports list is populated immediately
+      // PDF is the canonical automatic artifact; other formats remain on-demand exports.
       this.autoGenerateReport(assessmentId, userId).catch((err) =>
         this.logger.warn(`Auto-report generation failed for ${assessmentId}: ${err.message}`),
       );
@@ -297,16 +297,16 @@ export class ScannerProcessor extends WorkerHost {
     });
     if (!assessment) return;
 
-    const content = this.reportGenerator.generateJson(assessment);
+    const content = await this.reportGenerator.generatePdf(assessment, 'TECHNICAL');
     const projectName = (assessment.project as any).name ?? 'report';
     const ts = new Date().toISOString().split('T')[0];
 
     await this.reportsService.createRecord({
       assessmentId,
       type:     'TECHNICAL',
-      format:   'JSON',
-      title:    `Auto-generated JSON — ${projectName} — ${ts}`,
-      fileSize: Buffer.byteLength(content, 'utf8'),
+      format:   'PDF',
+      title:    `Automatic security report — ${projectName} — ${ts}`,
+      fileSize: content.length,
     });
   }
 

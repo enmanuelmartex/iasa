@@ -8,7 +8,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Observable, Subject } from 'rxjs';
+import { concat, Observable, of, Subject } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { RunAssessmentDto } from './dto/run-assessment.dto';
@@ -188,7 +188,7 @@ export class AssessmentsService {
   async streamProgress(assessmentId: string, userId: string): Promise<Observable<MessageEvent>> {
     const assessment = await this.prisma.assessment.findFirst({
       where: { id: assessmentId, project: { userId } },
-      select: { id: true },
+      select: { id: true, status: true, progress: true, currentStep: true },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
 
@@ -202,7 +202,18 @@ export class AssessmentsService {
       }
     }, 10 * 60 * 1000);
 
-    return subject.asObservable();
+    const initial = {
+      data: {
+        assessmentId,
+        step: assessment.currentStep ?? assessment.status,
+        message: assessment.currentStep ?? assessment.status,
+        progress: assessment.progress,
+        completed: assessment.status === 'COMPLETED',
+        error: assessment.status === 'FAILED' ? assessment.currentStep ?? 'Assessment failed' : undefined,
+      },
+    } as MessageEvent;
+
+    return concat(of(initial), subject.asObservable());
   }
 
   private emitProgress(assessmentId: string, data: any) {

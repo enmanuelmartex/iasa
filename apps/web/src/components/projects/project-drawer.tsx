@@ -48,6 +48,7 @@ export function ProjectDrawer({ open, project, onOpenChange, onChanged }: { open
   const savedSnapshot = useRef('');
   const requestVersion = useRef(0);
   const projectIdRef = useRef<string | null>(null);
+  const isReadyRef = useRef(false);
   const createDraftPromise = useRef<Promise<string> | null>(null);
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: defaults, mode: 'onTouched' });
   const values = form.watch();
@@ -60,6 +61,7 @@ export function ProjectDrawer({ open, project, onOpenChange, onChanged }: { open
     form.reset(next);
     const existingId = project?.id ?? null;
     projectIdRef.current = existingId;
+    isReadyRef.current = project?.status === 'READY';
     createDraftPromise.current = null;
     setProjectId(existingId);
     setStep(project?.setupStep ?? 1);
@@ -77,11 +79,7 @@ export function ProjectDrawer({ open, project, onOpenChange, onChanged }: { open
     const timer = window.setTimeout(async () => {
       setSaveState('saving');
       try {
-        const payload = { name: values.name, description: values.description, baseUrl: values.baseUrl, environment: values.environment, setupStep: step };
-        const existingId = projectIdRef.current;
-        existingId
-          ? await projectsApi.saveDraft(existingId, payload)
-          : { id: await ensureDraft(payload) };
+        await persistDetails({ name: values.name, description: values.description, baseUrl: values.baseUrl, environment: values.environment, setupStep: step });
         if (version !== requestVersion.current) return;
         savedSnapshot.current = snapshot; setSaveState('saved'); onChanged();
       } catch { if (version === requestVersion.current) setSaveState('error'); }
@@ -101,6 +99,20 @@ export function ProjectDrawer({ open, project, onOpenChange, onChanged }: { open
       createDraftPromise.current = null;
     });
     return createDraftPromise.current;
+  }
+  /**
+   * Draft autosave (`PUT /:id/draft`) is rejected by the API once a project is
+   * finalized, so a READY project is persisted through the regular update
+   * endpoint instead. `setupStep` is draft-only and is dropped for that path.
+   */
+  async function persistDetails(payload: { name: string; description: string; baseUrl: string; environment: Values['environment']; setupStep: number }) {
+    const existingId = projectIdRef.current;
+    if (existingId && isReadyRef.current) {
+      const { setupStep: _setupStep, ...details } = payload;
+      return projectsApi.update(existingId, details);
+    }
+    if (existingId) return projectsApi.saveDraft(existingId, payload);
+    return ensureDraft(payload);
   }
   async function next() {
     if (busy) return;
@@ -129,8 +141,7 @@ export function ProjectDrawer({ open, project, onOpenChange, onChanged }: { open
     setBusy(true);
     setSaveState('saving');
     try {
-      const id = await ensureDraft();
-      await projectsApi.saveDraft(id, { name: values.name, description: values.description, baseUrl: values.baseUrl, environment: values.environment, setupStep: step });
+      await persistDetails({ name: values.name, description: values.description, baseUrl: values.baseUrl, environment: values.environment, setupStep: step });
       savedSnapshot.current = JSON.stringify(values);
       setSaveState('saved');
       onChanged();
@@ -140,7 +151,7 @@ export function ProjectDrawer({ open, project, onOpenChange, onChanged }: { open
       toast.error(message(e, 'We could not save the draft. Please try again.'));
     } finally { setBusy(false); }
   }
-  const stateText = { idle: '', dirty: 'Unsaved changes', saving: 'Saving…', saved: 'Draft saved', error: 'Could not save' }[saveState];
+  const stateText = { idle: '', dirty: 'Unsaved changes', saving: 'Saving…', saved: project?.status === 'READY' ? 'Changes saved' : 'Draft saved', error: 'Could not save' }[saveState];
   const error = (name: keyof Values) => form.formState.errors[name]?.message;
   const field = (name: keyof Values, label: string, input: React.ReactNode, description?: string) => <Field data-invalid={Boolean(error(name))}><FieldLabel htmlFor={name}>{label}</FieldLabel>{input}{description && <FieldDescription>{description}</FieldDescription>}<FieldError errors={error(name) ? [{ message: error(name) }] : undefined} /></Field>;
 

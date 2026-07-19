@@ -1,64 +1,54 @@
 import type { Column } from '@tanstack/react-table';
-import { IconArrowDown, IconArrowsSort, IconArrowUp, IconEyeOff } from '@tabler/icons-react';
+import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 interface DataTableColumnHeaderProps<TData, TValue> extends React.HTMLAttributes<HTMLDivElement> {
   column: Column<TData, TValue>;
   title: string;
 }
 
+/**
+ * Sorting is a direct toggle on the header: click cycles ascending →
+ * descending → unsorted, and the arrow reflects the current state. Column
+ * visibility lives in the toolbar's "Columns" menu instead.
+ */
 export function DataTableColumnHeader<TData, TValue>({
   column,
   title,
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
   if (!column.getCanSort()) {
-    return <div className={cn('text-xs font-medium', className)}>{title}</div>;
+    return <div className={cn('text-xs font-medium text-muted-foreground', className)}>{title}</div>;
   }
 
+  const sorted = column.getIsSorted();
+
   return (
-    <div className={cn('flex items-center gap-1', className)}>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="-ml-2 h-7 gap-1 px-2 text-xs font-medium">
-            <span>{title}</span>
-            {column.getIsSorted() === 'desc' ? (
-              <IconArrowDown className="h-3.5 w-3.5" />
-            ) : column.getIsSorted() === 'asc' ? (
-              <IconArrowUp className="h-3.5 w-3.5" />
-            ) : (
-              <IconArrowsSort className="h-3.5 w-3.5 text-muted-foreground" />
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <DropdownMenuItem onClick={() => column.toggleSorting(false)}>
-            <IconArrowUp className="h-3.5 w-3.5" />
-            Asc
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => column.toggleSorting(true)}>
-            <IconArrowDown className="h-3.5 w-3.5" />
-            Desc
-          </DropdownMenuItem>
-          {column.getCanHide() && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => column.toggleVisibility(false)}>
-                <IconEyeOff className="h-3.5 w-3.5" />
-                Hide
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    <button
+      type="button"
+      onClick={column.getToggleSortingHandler()}
+      title={
+        sorted === 'asc'
+          ? 'Ordenado ascendente'
+          : sorted === 'desc'
+            ? 'Ordenado descendente'
+            : 'Sin ordenar'
+      }
+      className={cn(
+        '-ml-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium transition-colors',
+        'hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        sorted ? 'text-foreground' : 'text-muted-foreground',
+        className,
+      )}
+    >
+      {title}
+      {sorted === 'asc' ? (
+        <ArrowUp className="size-3.5 shrink-0" />
+      ) : sorted === 'desc' ? (
+        <ArrowDown className="size-3.5 shrink-0" />
+      ) : (
+        <ChevronsUpDown className="size-3.5 shrink-0 opacity-40" />
+      )}
+    </button>
   );
 }

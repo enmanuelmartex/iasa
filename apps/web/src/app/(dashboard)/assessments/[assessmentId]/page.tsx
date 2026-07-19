@@ -1,0 +1,109 @@
+'use client';
+
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { IconArrowLeft, IconBug, IconDownload, IconFileReport, IconSparkles, IconTerminal2 } from '@tabler/icons-react';
+import { toast } from 'sonner';
+import { assessmentsApi, reportsApi } from '@/lib/api';
+import type { Assessment, ScanProgress } from '@/types';
+import { PageContainer } from '@/components/layout/page-container';
+import { PageHeader } from '@/components/layout/page-header';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SeverityBadge } from '@/components/security/severity-badge';
+import { StatusBadge } from '@/components/security/finding-status-badge';
+import { formatDate, formatDuration } from '@/lib/utils';
+
+const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
+
+export default function AssessmentDetailPage() {
+  const { assessmentId } = useParams<{ assessmentId: string }>();
+  const queryClient = useQueryClient();
+  const [exporting, setExporting] = useState<string>();
+  const query = useQuery<Assessment>({
+    queryKey: ['assessments', assessmentId],
+    queryFn: () => assessmentsApi.get(assessmentId),
+    enabled: Boolean(assessmentId),
+    refetchInterval: (state) => TERMINAL.has(state.state.data?.status ?? '') ? false : 3000,
+  });
+
+  useEffect(() => {
+    const token = window.localStorage.getItem('iasa_token');
+    if (!assessmentId || !token || TERMINAL.has(query.data?.status ?? '')) return;
+    const stream = assessmentsApi.streamProgress(assessmentId, token);
+    stream.onmessage = (event) => {
+      try {
+        const update = JSON.parse(event.data) as ScanProgress;
+        queryClient.setQueryData<Assessment>(['assessments', assessmentId], (current) => current ? {
+          ...current,
+          progress: update.progress ?? current.progress,
+          currentStep: update.message ?? update.step ?? current.currentStep,
+        } : current);
+        if (update.completed || update.error) {
+          stream.close();
+          queryClient.invalidateQueries({ queryKey: ['assessments', assessmentId] });
+        }
+      } catch {
+        // Polling remains active when an event cannot be decoded.
+      }
+    };
+    stream.onerror = () => stream.close();
+    return () => stream.close();
+  }, [assessmentId, query.data?.status, queryClient]);
+
+  if (query.isLoading) return <PageContainer><Skeleton className="h-9 w-72" /><Skeleton className="mt-6 h-72 w-full" /></PageContainer>;
+  if (query.isError || !query.data) return <PageContainer><EmptyState icon={IconBug} title="Assessment not found" description="It may have been deleted or you may not have access." action={<Button asChild variant="outline"><Link href="/assessments">Back to assessments</Link></Button>} /></PageContainer>;
+
+  const assessment = query.data;
+  const running = !TERMINAL.has(assessment.status);
+  const summary = assessment.summary;
+  const ai = summary?.aiStatus;
+  const exportReport = async (format: 'PDF' | 'HTML' | 'JSON' | 'SARIF' | 'MARKDOWN') => {
+    setExporting(format);
+    try { await reportsApi.generate(assessment.id, format, 'TECHNICAL'); toast.success(`${format} report downloaded`); }
+    catch { toast.error(`Could not export ${format}`); }
+    finally { setExporting(undefined); }
+  };
+
+  return (
+    <PageContainer>
+      <PageHeader
+        title={`Assessment ${assessment.id.slice(0, 8)}`}
+        description={`${assessment.project?.name ?? 'Project'} · ${formatDate(assessment.createdAt)}`}
+        breadcrumb={<Link href="/assessments" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><IconArrowLeft className="size-3" />Assessments</Link>}
+        actions={<><StatusBadge status={assessment.status} />{assessment.project && <Button asChild variant="outline"><Link href={`/projects/${assessment.project.id}`}>Open project</Link></Button>}</>}
+      />
+
+      <Card className={running ? 'border-primary/30' : undefined}>
+        <CardHeader><CardTitle>{running ? 'Assessment in progress' : assessment.status === 'COMPLETED' ? 'Assessment completed' : 'Assessment stopped'}</CardTitle><CardDescription>{assessment.currentStep || (running ? 'Waiting for the scanner worker…' : 'The execution has reached a terminal state.')}</CardDescription></CardHeader>
+        <CardContent><div className="flex items-center gap-3"><Progress value={assessment.progress} aria-label="Assessment progress" /><span className="w-12 text-right text-sm tabular-nums">{assessment.progress}%</span></div></CardContent>
+      </Card>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Security score" value={summary ? `${summary.securityScore}/100` : '—'} />
+        <Metric label="Endpoints tested" value={summary ? `${summary.testedEndpoints}/${summary.totalEndpoints}` : '—'} />
+        <Metric label="Findings" value={summary?.totalFindings ?? assessment._count?.findings ?? '—'} />
+        <Metric label="Duration" value={assessment.duration ? formatDuration(assessment.duration) : '—'} />
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2"><CardHeader><CardTitle className="flex items-center gap-2"><IconBug className="size-4 text-primary" />Findings</CardTitle><CardDescription>Evidence captured by this immutable execution.</CardDescription></CardHeader><CardContent className="space-y-2">{assessment.findings?.length ? assessment.findings.map((finding) => <Link key={finding.id} href={`/findings/${finding.id}`} className="flex items-center justify-between gap-3 rounded-md border p-3 hover:bg-accent"><div className="min-w-0"><p className="truncate text-sm font-medium">{finding.title}</p><p className="truncate text-xs text-muted-foreground">{finding.endpoint ? `${finding.endpoint.method} ${finding.endpoint.path}` : finding.affectedUrl || finding.owaspCategory}</p></div><SeverityBadge severity={finding.severity} size="sm" /></Link>) : <EmptyState icon={IconBug} title={running ? 'Scanning for findings' : 'No findings detected'} compact />}</CardContent></Card>
+        <div className="space-y-4">
+          <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconTerminal2 className="size-4 text-primary" />Execution</CardTitle></CardHeader><CardContent><dl className="space-y-2 text-xs"><Row label="Mode" value={assessment.config?.executionMode ?? '—'} /><Row label="Plugins" value={String(assessment.config?.resolvedPlugins?.length ?? 0)} /><Row label="AI analysis" value={assessment.config?.enableAiAnalysis ? 'Enabled' : 'Disabled'} /><Row label="Risk" value={summary?.riskLevel ?? '—'} /></dl></CardContent></Card>
+          <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconFileReport className="size-4 text-primary" />Reports</CardTitle></CardHeader><CardContent className="space-y-2">{assessment.reports?.length ? assessment.reports.map((report) => <Button key={report.id} asChild variant="outline" className="w-full justify-between"><Link href={`/reports/${report.id}`}>{report.title}<Badge variant="secondary">{report.format}</Badge></Link></Button>) : <p className="text-sm text-muted-foreground">{running ? 'Generated after completion.' : 'No report artifact is available.'}</p>}</CardContent></Card>
+          <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconDownload className="size-4 text-primary" />Export</CardTitle><CardDescription>PDF is the primary report; machine-readable formats are also available.</CardDescription></CardHeader><CardContent className="grid grid-cols-2 gap-2">{(['PDF', 'HTML', 'JSON', 'SARIF', 'MARKDOWN'] as const).map((format) => <Button key={format} variant={format === 'PDF' ? 'default' : 'outline'} size="sm" disabled={running || Boolean(exporting)} onClick={() => exportReport(format)}>{exporting === format ? 'Preparing…' : format}</Button>)}</CardContent></Card>
+          <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconSparkles className="size-4 text-primary" />AI enrichment</CardTitle><CardDescription>{assessment.config?.enableAiAnalysis ? 'Requested for this execution.' : 'Disabled for this execution.'}</CardDescription></CardHeader><CardContent className="text-xs">{ai ? <dl className="space-y-2"><Row label="Status" value={ai.status ?? (ai.available ? 'completed' : 'skipped')} /><Row label="Provider" value={ai.provider || '—'} /><Row label="Model" value={ai.model || '—'} /><Row label="Findings enriched" value={String(ai.analyzed)} /><Row label="Tokens" value={ai.tokensUsed.toLocaleString()} />{(ai.reason || ai.errorMessage) && <Row label="Details" value={ai.reason || ai.errorMessage || '—'} />}</dl> : <p className="text-muted-foreground">{running ? 'AI runs after plugin analysis.' : 'No AI execution metadata was recorded.'}</p>}</CardContent></Card>
+        </div>
+      </div>
+    </PageContainer>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) { return <Card><CardHeader><CardDescription>{label}</CardDescription><CardTitle>{value}</CardTitle></CardHeader></Card>; }
+function Row({ label, value }: { label: string; value: string }) { return <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{label}</dt><dd className="font-medium capitalize">{value}</dd></div>; }

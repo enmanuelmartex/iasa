@@ -144,8 +144,13 @@ Each object must have:
   "businessImpact": "Business risk and consequences",
   "confidence": "HIGH|MEDIUM|LOW",
   "falsePositiveRisk": "HIGH|MEDIUM|LOW",
+  "securityBestPractices": ["3-5 concrete controls aligned with OWASP API Security Top 10"],
+  "validationSteps": ["specific steps to verify the remediation without destructive testing"],
+  "priorityActions": ["ordered immediate, short-term and preventive actions"],
   "codeExamples": { "vulnerable": "brief vulnerable code", "fixed": "brief secure code" }
-}`,
+}
+
+Requirements: never invent evidence, credentials or compliance claims; distinguish observed facts from recommendations; prefer allowlists, least privilege, server-side authorization, schema validation, rate limiting, secure headers, secret redaction and auditable controls where applicable.`,
       maxTokens:   config.maxTokens,
       temperature: config.temperature,
       jsonMode:    true,
