@@ -341,7 +341,6 @@ model Project {
 
   apiSpec        ApiSpec?
   assessments    Assessment[]
-  secrets        ProjectSecret[]
   /// Persistent vulnerabilities. Owned by the project so scan deletion cannot
   /// remove them.
   securityIssues SecurityIssue[]
@@ -356,20 +355,10 @@ model Project {
   @@map("projects")
 }
 
-model ProjectSecret {
-  id        String  @id @default(cuid())
-  projectId String
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  key       String
-  value     String // AES-256 encrypted
-  isActive  Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([projectId, key])
-  @@map("project_secrets")
-}
+// `ProjectSecret` was removed in Phase 1B. It was declared with an
+// "AES-256 encrypted" comment but had zero code references anywhere in the
+// repository — nothing ever read or wrote it. Project credentials live in
+// `AuthConfig`, which Phase 0 made genuinely encrypted.
 
 // =============================================================================
 // API SPECIFICATION
@@ -602,7 +591,18 @@ model AssessmentLog {
 }
 
 // =============================================================================
-// FINDING
+// FINDING — LEGACY, TRANSITIONAL
+//
+// Superseded by SecurityIssue + FindingOccurrence. Deliberately retained in the
+// Phase 1B baseline: 19 call sites across 8 files still write and read it
+// (scanner.processor, findings.service, plugins.service, reports, assessments,
+// projects). Replacing them IS the Phase 1C persistence rewrite, so dropping
+// this table now would force that rewrite into the wrong phase.
+//
+// Phase 1C repoints every one of those call sites at the new models and drops
+// this table and the FindingStatus enum in its own migration.
+//
+// Nothing new should read or write Finding.
 // =============================================================================
 
 model Finding {

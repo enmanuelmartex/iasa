@@ -1,62 +1,316 @@
+/**
+ * IASA development seed.
+ *
+ * Deterministic and idempotent: running it any number of times converges to the
+ * same state. Every write is an upsert keyed on a stable identifier, so ids
+ * never churn and no unique constraint is ever violated.
+ *
+ * Contains no real secrets. The demo passwords below are local-development
+ * credentials, already published in README.md, and exist only so a fresh clone
+ * can sign in. They are not valid anywhere else.
+ *
+ * Plugins are intentionally NOT seeded here: PluginRegistryService.onModuleInit
+ * upserts all built-in checks from the code registry when the API boots, which
+ * is the single source of truth for what is installed. Seeding them too would
+ * create a second, drifting definition.
+ */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-async function main() {
-  console.log('🌱 Seeding IASA database...');
+/** Stable ids so repeated runs update rather than insert. */
+const IDS = {
+  adminUser: 'seed-user-admin',
+  analystUser: 'seed-user-analyst',
+  demoProject: 'seed-project-petstore',
+  profileQuick: 'seed-profile-quick-scan',
+  profileAuthz: 'seed-profile-auth-authz',
+  profileOwasp: 'seed-profile-owasp-top10',
+  profilePassive: 'seed-profile-passive',
+} as const;
 
-  // Create default admin user
+/**
+ * Minimal but valid OpenAPI 3.0 document, embedded rather than fetched so
+ * seeding works offline and produces byte-identical results every run.
+ */
+const DEMO_SPEC = {
+  openapi: '3.0.0',
+  info: { title: 'PetStore Demo API', version: '1.0.0' },
+  paths: {
+    '/pet/{petId}': {
+      get: {
+        operationId: 'getPetById',
+        summary: 'Find pet by ID',
+        tags: ['pet'],
+        parameters: [
+          { name: 'petId', in: 'path', required: true, schema: { type: 'integer' } },
+        ],
+        responses: { '200': { description: 'successful operation' } },
+      },
+      delete: {
+        operationId: 'deletePet',
+        summary: 'Delete a pet',
+        tags: ['pet'],
+        parameters: [
+          { name: 'petId', in: 'path', required: true, schema: { type: 'integer' } },
+        ],
+        responses: { '200': { description: 'successful operation' } },
+      },
+    },
+    '/pet/findByStatus': {
+      get: {
+        operationId: 'findPetsByStatus',
+        summary: 'Finds pets by status',
+        tags: ['pet'],
+        parameters: [
+          { name: 'status', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: { '200': { description: 'successful operation' } },
+      },
+    },
+    '/store/order': {
+      post: {
+        operationId: 'placeOrder',
+        summary: 'Place an order for a pet',
+        tags: ['store'],
+        responses: { '200': { description: 'successful operation' } },
+      },
+    },
+    '/user/login': {
+      get: {
+        operationId: 'loginUser',
+        summary: 'Log user into the system',
+        tags: ['user'],
+        parameters: [
+          { name: 'username', in: 'query', schema: { type: 'string' } },
+          { name: 'password', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: { '200': { description: 'successful operation' } },
+      },
+    },
+  },
+} as const;
+
+/** Endpoints derived from DEMO_SPEC, in a stable order. */
+const DEMO_ENDPOINTS = [
+  { path: '/pet/{petId}', method: 'GET' as const, operationId: 'getPetById', summary: 'Find pet by ID', tags: ['pet'] },
+  { path: '/pet/{petId}', method: 'DELETE' as const, operationId: 'deletePet', summary: 'Delete a pet', tags: ['pet'] },
+  { path: '/pet/findByStatus', method: 'GET' as const, operationId: 'findPetsByStatus', summary: 'Finds pets by status', tags: ['pet'] },
+  { path: '/store/order', method: 'POST' as const, operationId: 'placeOrder', summary: 'Place an order for a pet', tags: ['store'] },
+  { path: '/user/login', method: 'GET' as const, operationId: 'loginUser', summary: 'Log user into the system', tags: ['user'] },
+];
+
+/**
+ * System scan profiles. Plugin ids match the built-in registry
+ * (apps/api/src/modules/plugins/plugin-registry.service.ts).
+ */
+const SYSTEM_PROFILES = [
+  {
+    id: IDS.profileQuick,
+    name: 'Quick Scan',
+    description: 'Fast passive checks with no mutating requests. Good for a first look.',
+    icon: 'bolt',
+    enabledPlugins: ['security-headers', 'cors'],
+  },
+  {
+    id: IDS.profileAuthz,
+    name: 'Authentication & Authorization',
+    description: 'Focused on broken authentication and access-control flaws.',
+    icon: 'lock',
+    enabledPlugins: ['broken-authentication', 'jwt-analysis', 'bola', 'bfla'],
+  },
+  {
+    id: IDS.profileOwasp,
+    name: 'OWASP API Top 10',
+    description: 'Every built-in check, covering the OWASP API Security Top 10 categories IASA implements.',
+    icon: 'shield',
+    enabledPlugins: [
+      'security-headers', 'cors', 'broken-authentication', 'jwt-analysis',
+      'bola', 'bfla', 'mass-assignment', 'rate-limit', 'sensitive-data', 'ssrf',
+    ],
+  },
+  {
+    id: IDS.profilePassive,
+    name: 'Passive Checks Only',
+    description: 'Read-only analysis. Sends no mutating requests and no rate-limit probing.',
+    icon: 'eye',
+    enabledPlugins: ['security-headers', 'cors', 'sensitive-data'],
+  },
+];
+
+async function seedUsers() {
+  // Local development credentials only — see the file header.
   const adminPassword = await bcrypt.hash('Admin@123!', 12);
+  const analystPassword = await bcrypt.hash('Analyst@123!', 12);
+
   const admin = await prisma.user.upsert({
     where: { email: 'admin@iasa.local' },
-    update: {},
+    // Password intentionally not in `update`: re-seeding must not silently
+    // reset a password an operator changed locally.
+    update: { name: 'IASA Admin', role: 'ADMIN', isActive: true },
     create: {
+      id: IDS.adminUser,
       email: 'admin@iasa.local',
       name: 'IASA Admin',
       password: adminPassword,
       role: 'ADMIN',
+      emailVerified: true,
     },
   });
 
-  // Create demo analyst
-  const analystPassword = await bcrypt.hash('Analyst@123!', 12);
   const analyst = await prisma.user.upsert({
     where: { email: 'analyst@iasa.local' },
-    update: {},
+    update: { name: 'Security Analyst', role: 'ANALYST', isActive: true },
     create: {
+      id: IDS.analystUser,
       email: 'analyst@iasa.local',
       name: 'Security Analyst',
       password: analystPassword,
       role: 'ANALYST',
+      emailVerified: true,
     },
   });
 
-  // Create demo project using PetStore API
+  return { admin, analyst };
+}
+
+async function seedDemoProject(ownerId: string) {
+  // READY requires a spec, endpoints and a resolved auth configuration. The
+  // previous seed created a READY project with no ApiSpec at all — an
+  // impossible state that `createAndRun` rejects at scan time.
   const project = await prisma.project.upsert({
-    where: { id: 'demo-project-001' },
-    update: {},
-    create: {
-      id: 'demo-project-001',
+    where: { id: IDS.demoProject },
+    update: {
       name: 'PetStore Demo API',
       description: 'Swagger PetStore API — used for IASA demonstration',
       baseUrl: 'https://petstore3.swagger.io/api/v3',
       environment: 'DEVELOPMENT',
+      assetCriticality: 'LOW',
+      status: 'READY',
+      setupStep: 3,
+    },
+    create: {
+      id: IDS.demoProject,
+      name: 'PetStore Demo API',
+      description: 'Swagger PetStore API — used for IASA demonstration',
+      baseUrl: 'https://petstore3.swagger.io/api/v3',
+      environment: 'DEVELOPMENT',
+      assetCriticality: 'LOW',
       tags: ['demo', 'petstore', 'openapi'],
-      userId: analyst.id,
+      status: 'READY',
+      setupStep: 3,
+      completedAt: new Date('2026-01-01T00:00:00.000Z'),
+      userId: ownerId,
     },
   });
 
-  console.log(`✅ Created users: ${admin.email}, ${analyst.email}`);
-  console.log(`✅ Created demo project: ${project.name}`);
+  const apiSpec = await prisma.apiSpec.upsert({
+    where: { projectId: project.id },
+    update: {
+      rawSpec: DEMO_SPEC as any,
+      parsed: DEMO_SPEC as any,
+      title: DEMO_SPEC.info.title,
+      version: DEMO_SPEC.info.version,
+    },
+    create: {
+      projectId: project.id,
+      source: 'MANUAL',
+      rawSpec: DEMO_SPEC as any,
+      parsed: DEMO_SPEC as any,
+      title: DEMO_SPEC.info.title,
+      version: DEMO_SPEC.info.version,
+      format: 'openapi',
+    },
+  });
+
+  // Upsert per endpoint on the natural key, so re-seeding neither duplicates
+  // rows nor churns their ids (which FindingOccurrence references).
+  for (const endpoint of DEMO_ENDPOINTS) {
+    await prisma.endpoint.upsert({
+      where: {
+        apiSpecId_path_method: {
+          apiSpecId: apiSpec.id,
+          path: endpoint.path,
+          method: endpoint.method,
+        },
+      },
+      update: {
+        operationId: endpoint.operationId,
+        summary: endpoint.summary,
+        tags: endpoint.tags,
+      },
+      create: {
+        apiSpecId: apiSpec.id,
+        path: endpoint.path,
+        method: endpoint.method,
+        operationId: endpoint.operationId,
+        summary: endpoint.summary,
+        tags: endpoint.tags,
+        parameters: [],
+        responses: {},
+        security: [],
+      },
+    });
+  }
+
+  // The public PetStore demo needs no credentials. NONE is a complete auth
+  // configuration, which is what makes the project genuinely READY.
+  await prisma.authConfig.upsert({
+    where: { apiSpecId: apiSpec.id },
+    update: { type: 'NONE' },
+    create: { apiSpecId: apiSpec.id, type: 'NONE' },
+  });
+
+  return { project, apiSpec };
+}
+
+async function seedSystemProfiles() {
+  for (const profile of SYSTEM_PROFILES) {
+    await prisma.scanProfile.upsert({
+      where: { id: profile.id },
+      update: {
+        name: profile.name,
+        description: profile.description,
+        icon: profile.icon,
+        enabledPlugins: profile.enabledPlugins,
+        isSystem: true,
+      },
+      create: {
+        id: profile.id,
+        name: profile.name,
+        description: profile.description,
+        icon: profile.icon,
+        enabledPlugins: profile.enabledPlugins,
+        isSystem: true,
+        userId: null,
+      },
+    });
+  }
+  return SYSTEM_PROFILES.length;
+}
+
+async function main() {
+  console.log('Seeding IASA database...');
+
+  const { admin, analyst } = await seedUsers();
+  const { project } = await seedDemoProject(analyst.id);
+  const profileCount = await seedSystemProfiles();
+
+  console.log(`  users            ${admin.email}, ${analyst.email}`);
+  console.log(`  demo project     ${project.name} (READY, ${DEMO_ENDPOINTS.length} endpoints)`);
+  console.log(`  system profiles  ${profileCount}`);
   console.log('');
-  console.log('🔐 Demo credentials:');
-  console.log('   Admin:    admin@iasa.local / Admin@123!');
-  console.log('   Analyst:  analyst@iasa.local / Analyst@123!');
+  console.log('Development credentials (local only):');
+  console.log('  admin@iasa.local   / Admin@123!');
+  console.log('  analyst@iasa.local / Analyst@123!');
   console.log('');
-  console.log('🚀 Ready! Open http://localhost:3000 to start');
+  console.log('Built-in security checks are registered by the API on startup.');
 }
 
 main()
-  .catch(console.error)
+  .catch((error) => {
+    console.error('Seed failed:', error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  })
   .finally(() => prisma.$disconnect());

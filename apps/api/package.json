@@ -14,7 +14,6 @@
     "test:watch": "bun test src --watch",
     "test:cov": "bun test src --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "prisma migrate deploy",
     "db:studio": "prisma studio",

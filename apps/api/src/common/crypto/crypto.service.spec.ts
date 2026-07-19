@@ -49,15 +49,64 @@ describe('CryptoService', () => {
     expect(() => other.decrypt(crypto.encrypt('secret'))).toThrow();
   });
 
-  it('decrypts legacy AES-256-CBC ciphertext written before Phase 0', () => {
-    // Reproduces the original AiConfigService scheme: key = raw.padEnd(32).slice(0,32)
-    const legacyKey = Buffer.from(TEST_KEY.padEnd(32).slice(0, 32), 'utf8');
-    const iv = randomBytes(16);
-    const cipher = createCipheriv('aes-256-cbc', legacyKey, iv);
-    const enc = Buffer.concat([cipher.update('legacy-api-key', 'utf8'), cipher.final()]);
-    const legacy = `${iv.toString('hex')}:${enc.toString('hex')}`;
+  describe('AES-256-GCM is the only supported format', () => {
+    /** Rebuilds a payload in the pre-Phase-0 AES-256-CBC scheme. */
+    function legacyCbcPayload(plaintext: string): string {
+      const legacyKey = Buffer.from(TEST_KEY.padEnd(32).slice(0, 32), 'utf8');
+      const iv = randomBytes(16);
+      const cipher = createCipheriv('aes-256-cbc', legacyKey, iv);
+      const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+      return `${iv.toString('hex')}:${enc.toString('hex')}`;
+    }
 
-    expect(crypto.decrypt(legacy)).toBe('legacy-api-key');
+    it('still round-trips AES-256-GCM', () => {
+      const secret = 'sk-live-provider-key';
+      expect(crypto.decrypt(crypto.encrypt(secret))).toBe(secret);
+    });
+
+    it('rejects the legacy CBC format, which was removed in Phase 1B', () => {
+      // The CBC read path existed only to carry pre-Phase-0 data forward. The
+      // Phase 1B database regeneration proved no CBC ciphertext remains, so the
+      // code was deleted rather than left as dead compatibility.
+      expect(() => crypto.decrypt(legacyCbcPayload('legacy-api-key'))).toThrow(
+        /unsupported scheme|malformed/i,
+      );
+    });
+
+    it('does not mistake a legacy CBC payload for valid ciphertext', () => {
+      // Must be false, otherwise encryptIfNeeded would leave it unencrypted.
+      expect(crypto.isEncrypted(legacyCbcPayload('x'))).toBe(false);
+    });
+
+    it('re-encrypts a legacy CBC payload instead of passing it through', () => {
+      const legacy = legacyCbcPayload('x');
+      const reEncrypted = crypto.encryptIfNeeded(legacy);
+      expect(reEncrypted).not.toBe(legacy);
+      expect(reEncrypted.startsWith('v1:')).toBe(true);
+    });
+
+    it.each([
+      ['empty', ''],
+      ['plaintext', 'not-encrypted-at-all'],
+      ['wrong version tag', 'v2:aa:bb:cc'],
+      ['too few segments', 'aabb:ccdd'],
+      ['too many segments', 'v1:aa:bb:cc:dd'],
+      ['non-hex segments', 'v1:zz:zz:zz'],
+    ])('fails safely on an unknown payload (%s)', (_label, payload) => {
+      expect(() => crypto.decrypt(payload)).toThrow();
+    });
+
+    it('never includes the payload or key material in the failure message', () => {
+      const payload = 'v1:deadbeef:cafebabe:secretlookingciphertext';
+      let message = '';
+      try {
+        crypto.decrypt(payload);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).not.toContain('secretlookingciphertext');
+      expect(message).not.toContain(TEST_KEY);
+    });
   });
 
   describe('isEncrypted', () => {
