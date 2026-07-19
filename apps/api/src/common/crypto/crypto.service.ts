@@ -27,13 +27,20 @@ export class CryptoService {
   constructor(private readonly configService: ConfigService) {
     const raw = this.configService.get<string>('security.encryptionKey') as string;
 
-    // validateEnv already proved this is present and derivable at boot.
+    // Single source of truth for the key contract, shared with validateEnv:
+    // exactly 64 hex characters (optionally `hex:`-prefixed). validateEnv has
+    // already proved this decodes at boot, so this cannot throw here.
     this.key = deriveEncryptionKey(raw);
 
-    // AiConfigService derived its CBC key as `raw.padEnd(32).slice(0, 32)` in
-    // UTF-8. That differs from `deriveEncryptionKey` whenever the key is hex or
-    // base64, so legacy ciphertext needs the original derivation to decrypt.
-    // Reproduced here only for reading; never used to encrypt.
+    // Legacy read path only. AiConfigService derived its CBC key as
+    // `raw.padEnd(32).slice(0, 32)` in UTF-8, which differs from the hex
+    // decoding above, so old ciphertext needs the original derivation.
+    //
+    // Note this is already unreachable for data written before the Phase 0 key
+    // rotation: that key no longer exists, so its ciphertext cannot be
+    // recovered under any derivation. Retained only until Phase 1B confirms the
+    // regenerated database holds no CBC ciphertext, after which this field and
+    // `decryptLegacyCbc` are removed and AES-256-GCM becomes the only format.
     this.legacyKey = Buffer.from(raw.padEnd(32).slice(0, 32), 'utf8');
   }
 

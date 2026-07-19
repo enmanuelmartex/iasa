@@ -27,37 +27,61 @@ export class EnvValidationError extends Error {
   }
 }
 
+/** The one accepted encoding: 64 hex characters, with an optional `hex:` prefix. */
+const HEX_KEY_PATTERN = /^(?:hex:)?([0-9a-fA-F]{64})$/;
+
 /**
- * Derives exactly 32 bytes of AES-256 key material from ENCRYPTION_KEY.
+ * Decodes ENCRYPTION_KEY into exactly 32 bytes of AES-256 key material.
  *
- * Accepted formats, in order of preference:
- *   1. 64 hex characters      → decoded to 32 bytes
- *   2. base64 decoding to 32 bytes
- *   3. raw UTF-8 of at least 32 bytes → first 32 bytes
+ * ONE unambiguous contract, shared by `validateEnv` and `CryptoService`:
  *
- * Short keys are rejected outright. We never pad: padding a short secret out
- * to 32 bytes creates the illusion of AES-256 strength without the entropy.
+ *     ENCRYPTION_KEY=<64 hex characters>
+ *     ENCRYPTION_KEY=hex:<64 hex characters>
+ *
+ * which is exactly what `openssl rand -hex 32` produces.
+ *
+ * Nothing is padded, truncated or re-encoded. An earlier revision accepted raw
+ * UTF-8 and silently took the first 32 bytes; that made two different env values
+ * derive the same key and hid the fact that the operator's entropy was being
+ * discarded. The original code was worse still — it space-padded short keys,
+ * fabricating AES-256 strength from far less entropy.
+ *
+ * A value that does not match the contract is an error, never a coercion.
  */
 export function deriveEncryptionKey(raw: string): Buffer {
-  if (/^[0-9a-fA-F]{64}$/.test(raw)) {
-    return Buffer.from(raw, 'hex');
+  const match = HEX_KEY_PATTERN.exec(raw.trim());
+
+  if (!match) {
+    throw new EnvValidationError([describeInvalidEncryptionKey(raw)]);
   }
 
-  if (/^[A-Za-z0-9+/]{42,44}={0,2}$/.test(raw)) {
-    const decoded = Buffer.from(raw, 'base64');
-    if (decoded.length === ENCRYPTION_KEY_BYTES) return decoded;
+  const key = Buffer.from(match[1], 'hex');
+
+  /* istanbul ignore next — unreachable while the pattern pins the length. */
+  if (key.length !== ENCRYPTION_KEY_BYTES) {
+    throw new EnvValidationError([
+      `ENCRYPTION_KEY decoded to ${key.length} bytes, expected ${ENCRYPTION_KEY_BYTES}.`,
+    ]);
   }
 
-  const utf8 = Buffer.from(raw, 'utf8');
-  if (utf8.length >= ENCRYPTION_KEY_BYTES) {
-    return utf8.subarray(0, ENCRYPTION_KEY_BYTES);
-  }
+  return key;
+}
 
-  throw new EnvValidationError([
-    `ENCRYPTION_KEY is too weak: it must be 64 hex characters, base64 decoding ` +
-      `to ${ENCRYPTION_KEY_BYTES} bytes, or at least ${ENCRYPTION_KEY_BYTES} UTF-8 bytes ` +
-      `(received ${utf8.length} bytes).`,
-  ]);
+/**
+ * Explains why a key was rejected — by shape only. The value is never included,
+ * because this text reaches logs and stderr.
+ */
+function describeInvalidEncryptionKey(raw: string): string {
+  const value = raw.trim();
+  const body = value.startsWith('hex:') ? value.slice(4) : value;
+  const expected =
+    `ENCRYPTION_KEY must be 64 hexadecimal characters (32 bytes), optionally ` +
+    `prefixed with "hex:". Generate one with \`openssl rand -hex 32\`.`;
+
+  if (body.length !== 64) {
+    return `${expected} Received ${body.length} characters.`;
+  }
+  return `${expected} Received 64 characters, but they are not all hexadecimal.`;
 }
 
 function requireSecret(
@@ -84,6 +108,15 @@ function requireSecret(
   }
 }
 
+/** Pulls the single bullet out of a nested EnvValidationError for re-reporting. */
+function extractFirstProblem(error: EnvValidationError): string {
+  const bullet = error.message
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.startsWith('•'));
+  return bullet ? bullet.replace(/^•\s*/, '') : 'ENCRYPTION_KEY is invalid.';
+}
+
 /**
  * Validates the process environment. Called by ConfigModule's `validate` hook,
  * so it runs once, at boot, before any module is instantiated.
@@ -99,18 +132,23 @@ export function validateEnv(
 
   requireSecret(problems, env, 'JWT_SECRET');
   requireSecret(problems, env, 'REFRESH_TOKEN_SECRET');
-  requireSecret(problems, env, 'ENCRYPTION_KEY');
 
-  // Only probe key derivation once the basic shape checks passed, so the
-  // operator sees one clear problem rather than two overlapping ones.
-  if (!problems.some((p) => p.startsWith('ENCRYPTION_KEY'))) {
+  // ENCRYPTION_KEY is not checked by requireSecret: it has a stricter, exact
+  // contract rather than a minimum length, and `deriveEncryptionKey` is the
+  // single place that contract is defined. CryptoService calls the same
+  // function, so validation and decoding can never drift apart.
+  if (typeof env.ENCRYPTION_KEY !== 'string' || env.ENCRYPTION_KEY.trim() === '') {
+    problems.push(
+      'ENCRYPTION_KEY is required but was not set. ' +
+        'Generate one with `openssl rand -hex 32`.',
+    );
+  } else {
     try {
-      deriveEncryptionKey(env.ENCRYPTION_KEY as string);
+      deriveEncryptionKey(env.ENCRYPTION_KEY);
     } catch (error) {
       problems.push(
         error instanceof EnvValidationError
-          ? error.message.split('\n')[2]?.replace(/^\s*•\s*/, '') ??
-              'ENCRYPTION_KEY is invalid.'
+          ? extractFirstProblem(error)
           : 'ENCRYPTION_KEY is invalid.',
       );
     }

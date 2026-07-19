@@ -20,33 +20,69 @@ function baseEnv(overrides: Record<string, unknown> = {}) {
 }
 
 describe('deriveEncryptionKey', () => {
-  it('decodes 64 hex characters to 32 bytes', () => {
+  it('decodes the output of `openssl rand -hex 32`', () => {
     const key = deriveEncryptionKey(VALID_HEX_KEY);
     expect(key).toHaveLength(ENCRYPTION_KEY_BYTES);
     expect(key.toString('hex')).toBe(VALID_HEX_KEY);
   });
 
-  it('decodes base64 that yields exactly 32 bytes', () => {
-    const source = Buffer.alloc(ENCRYPTION_KEY_BYTES, 7);
-    const key = deriveEncryptionKey(source.toString('base64'));
-    expect(key).toHaveLength(ENCRYPTION_KEY_BYTES);
-    expect(key.equals(source)).toBe(true);
+  it('accepts the explicit hex: prefix and decodes it identically', () => {
+    expect(deriveEncryptionKey(`hex:${VALID_HEX_KEY}`).equals(deriveEncryptionKey(VALID_HEX_KEY))).toBe(true);
   });
 
-  it('accepts raw UTF-8 of at least 32 bytes, truncating to 32', () => {
-    const key = deriveEncryptionKey('z'.repeat(40));
-    expect(key).toHaveLength(ENCRYPTION_KEY_BYTES);
-    expect(key.toString('utf8')).toBe('z'.repeat(32));
+  it('accepts uppercase hex', () => {
+    expect(deriveEncryptionKey(VALID_HEX_KEY.toUpperCase()).toString('hex')).toBe(VALID_HEX_KEY);
   });
 
-  it('rejects a short key rather than padding it', () => {
-    // The pre-Phase-0 code padded short keys with spaces, which fabricated
-    // AES-256 strength from far less entropy.
-    expect(() => deriveEncryptionKey('too-short')).toThrow(EnvValidationError);
+  it('ignores surrounding whitespace', () => {
+    expect(deriveEncryptionKey(`  ${VALID_HEX_KEY}\n`).toString('hex')).toBe(VALID_HEX_KEY);
   });
 
   it('is deterministic', () => {
     expect(deriveEncryptionKey(VALID_HEX_KEY).equals(deriveEncryptionKey(VALID_HEX_KEY))).toBe(true);
+  });
+
+  // ── The contract is exact: no padding, no truncation, no re-encoding ───────
+
+  it('rejects raw UTF-8 instead of silently truncating it to 32 bytes', () => {
+    // A previous revision accepted this and took the first 32 bytes, so two
+    // different env values derived the same key and the operator was never
+    // told their entropy was being discarded.
+    expect(() => deriveEncryptionKey('z'.repeat(40))).toThrow(EnvValidationError);
+    expect(() => deriveEncryptionKey('z'.repeat(32))).toThrow(EnvValidationError);
+  });
+
+  it('rejects base64, which is ambiguous against hex', () => {
+    expect(() => deriveEncryptionKey(Buffer.alloc(32, 7).toString('base64'))).toThrow(
+      EnvValidationError,
+    );
+  });
+
+  it('rejects a short key rather than padding it', () => {
+    // The original code space-padded short keys, fabricating AES-256 strength.
+    expect(() => deriveEncryptionKey('too-short')).toThrow(EnvValidationError);
+  });
+
+  it('rejects 64 characters that are not all hexadecimal', () => {
+    expect(() => deriveEncryptionKey('z'.repeat(64))).toThrow(/not all hexadecimal/);
+  });
+
+  it('rejects 63 and 65 hex characters', () => {
+    expect(() => deriveEncryptionKey('a'.repeat(63))).toThrow(EnvValidationError);
+    expect(() => deriveEncryptionKey('a'.repeat(65))).toThrow(EnvValidationError);
+  });
+
+  it('reports the length without echoing the value', () => {
+    const wrong = 'q'.repeat(50);
+    let message = '';
+    try {
+      deriveEncryptionKey(wrong);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('50 characters');
+    expect(message).toContain('openssl rand -hex 32');
+    expect(message).not.toContain(wrong);
   });
 });
 
