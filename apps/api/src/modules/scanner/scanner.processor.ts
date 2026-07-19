@@ -6,6 +6,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ScannerService } from './scanner.service';
 import { ScanContext, BasePlugin } from './types/scanner.types';
 import { resolveTargetUrl } from '../../common/utils/url-resolver.util';
+import { CryptoService } from '../../common/crypto/crypto.service';
+import { decryptAuthFields } from '../../common/crypto/auth-config.crypto';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { ReportGeneratorService } from '../reports/report-generator.service';
 import { ReportsService } from '../reports/reports.service';
@@ -28,6 +30,7 @@ export class ScannerProcessor extends WorkerHost {
     private pluginRegistry:   PluginRegistryService,
     private reportGenerator:  ReportGeneratorService,
     private reportsService:   ReportsService,
+    private crypto:           CryptoService,
   ) {
     super();
   }
@@ -95,19 +98,24 @@ export class ScannerProcessor extends WorkerHost {
 
       await this.addLog(assessmentId, 'info', 'core', `Found ${spec.endpoints.length} endpoints to test`);
 
+      const authConfig = decryptAuthFields(this.crypto, spec.authConfig as any);
+
       const context: ScanContext = {
         assessmentId,
         projectId,
         baseUrl: resolveTargetUrl(project.baseUrl ?? ''),
+        // Credentials are encrypted at rest; decrypt at the point of use only.
+        // The plaintext lives in this in-memory context and is never persisted
+        // or logged — BasePlugin redacts it out of all evidence.
         auth: {
-          type:           (spec.authConfig?.type as any) || 'NONE',
-          token:          spec.authConfig?.token        ?? undefined,
-          username:       spec.authConfig?.username     ?? undefined,
-          password:       spec.authConfig?.password     ?? undefined,
-          apiKey:         spec.authConfig?.apiKey       ?? undefined,
-          apiKeyHeader:   spec.authConfig?.apiKeyHeader ?? undefined,
-          apiKeyLocation: (spec.authConfig?.apiKeyLocation as any) ?? 'header',
-          customHeaders:  (spec.authConfig?.customHeaders as any)  ?? undefined,
+          type:           (authConfig?.type as any) || 'NONE',
+          token:          authConfig?.token        ?? undefined,
+          username:       authConfig?.username     ?? undefined,
+          password:       authConfig?.password     ?? undefined,
+          apiKey:         authConfig?.apiKey       ?? undefined,
+          apiKeyHeader:   authConfig?.apiKeyHeader ?? undefined,
+          apiKeyLocation: (authConfig?.apiKeyLocation as any) ?? 'header',
+          customHeaders:  (authConfig?.customHeaders as any)  ?? undefined,
         },
         endpoints: spec.endpoints.map((e) => ({
           id:          e.id,

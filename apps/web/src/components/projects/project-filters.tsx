@@ -85,7 +85,7 @@ export function ProjectFilters({ value, onChange, hasDrafts = false, className }
             id="project-filter-search"
             value={search.draft}
             onChange={(event) => search.setDraft(event.target.value)}
-            placeholder="Filtrar por URL o descripción"
+            placeholder="Filter by URL or description"
             className={CONTROL_CLASS}
           />
         </div>

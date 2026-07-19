@@ -215,10 +215,9 @@ export const reportsApi = {
   },
 };
 
-// Finance — estimated AI usage cost
-export const financeApi = {
-  summary: (params?: { projectId?: string; from?: string; to?: string }) =>
-    api.get('/finance/summary', { params }).then((r) => r.data),
-  usage: (params?: { page?: number; pageSize?: number; projectId?: string; provider?: string; from?: string; to?: string }) =>
-    api.get('/finance/usage', { params }).then((r) => r.data),
-};
+// NOTE: `financeApi` was removed in Phase 0. It called `/finance/summary` and
+// `/finance/usage`, which have no backend implementation — the API's finance
+// module is an empty directory, so every call 404'd. AI token usage will be
+// surfaced under Settings → AI Usage in Phase 8, once usage is actually
+// persisted in a queryable form. The Finance* types in `@/types` are kept for
+// that work.

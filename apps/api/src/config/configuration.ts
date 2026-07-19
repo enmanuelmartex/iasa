@@ -11,15 +11,18 @@ export default () => ({
     url: process.env.REDIS_URL || 'redis://localhost:6379',
   },
 
+  // No fallbacks for signing/encryption material: a hardcoded secret in the
+  // repository is a publicly known secret. `validateEnv` guarantees these are
+  // present and strong before this factory ever runs.
   jwt: {
-    secret: process.env.JWT_SECRET || 'fallback-secret-change-in-production',
+    secret: process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-    refreshSecret: process.env.REFRESH_TOKEN_SECRET || 'fallback-refresh-secret',
+    refreshSecret: process.env.REFRESH_TOKEN_SECRET,
     refreshExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '30d',
   },
 
   security: {
-    encryptionKey: process.env.ENCRYPTION_KEY || 'fallback-encryption-key-32chars',
+    encryptionKey: process.env.ENCRYPTION_KEY,
     bcryptRounds: 12,
   },
 

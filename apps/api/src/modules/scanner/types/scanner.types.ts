@@ -1,3 +1,10 @@
+import {
+  redactHeaders,
+  redactHttpMessage,
+  redactObject,
+  redactUrl,
+} from '../../../common/utils/redact.util';
+
 export interface ScanContext {
   assessmentId: string;
   projectId: string;
@@ -111,20 +118,33 @@ export abstract class BasePlugin {
 
   abstract run(context: ScanContext, pluginConfig?: Record<string, any>): Promise<PluginResult>;
 
+  /**
+   * Serialises an outbound request as evidence.
+   *
+   * The scanner authenticates with the user's real credentials, so this string
+   * would otherwise persist `Authorization: Bearer <real token>` into the
+   * database and every report. Header names are kept (proving the request was
+   * authenticated); their values are redacted. Never bypass this helper.
+   */
   protected buildRequestString(method: string, url: string, headers: Record<string, string>, body?: any): string {
-    const headerLines = Object.entries(headers)
+    const headerLines = Object.entries(redactHeaders(headers))
       .map(([k, v]) => `${k}: ${v}`)
       .join('\n');
-    const bodyStr = body ? `\n\n${typeof body === 'string' ? body : JSON.stringify(body, null, 2)}` : '';
-    return `${method.toUpperCase()} ${url} HTTP/1.1\n${headerLines}${bodyStr}`;
+    const rawBody = body ? (typeof body === 'string' ? body : JSON.stringify(redactObject(body), null, 2)) : '';
+    const bodyStr = rawBody ? `\n\n${rawBody}` : '';
+    return redactHttpMessage(
+      `${method.toUpperCase()} ${redactUrl(url)} HTTP/1.1\n${headerLines}${bodyStr}`,
+    ) as string;
   }
 
+  /** Serialises a response as evidence. Redacts Set-Cookie and token-bearing bodies. */
   protected buildResponseString(status: number, headers: Record<string, string>, body: any): string {
-    const headerLines = Object.entries(headers)
+    const headerLines = Object.entries(redactHeaders(headers))
       .map(([k, v]) => `${k}: ${v}`)
       .join('\n');
-    const bodyStr = body ? `\n\n${typeof body === 'string' ? body : JSON.stringify(body, null, 2)}` : '';
-    return `HTTP/1.1 ${status}\n${headerLines}${bodyStr}`;
+    const rawBody = body ? (typeof body === 'string' ? body : JSON.stringify(redactObject(body), null, 2)) : '';
+    const bodyStr = rawBody ? `\n\n${rawBody}` : '';
+    return redactHttpMessage(`HTTP/1.1 ${status}\n${headerLines}${bodyStr}`) as string;
   }
 
   protected getAuthHeaders(auth: AuthConfig): Record<string, string> {

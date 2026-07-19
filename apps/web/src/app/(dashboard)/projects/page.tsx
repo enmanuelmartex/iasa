@@ -121,8 +121,8 @@ export default function ProjectsPage() {
   return (
     <PageContainer>
       <PageHeader
-        title="Proyectos"
-        description="Gestiona tus proyectos de análisis de seguridad de APIs"
+        title="Projects"
+        description="Manage your API security assessment projects"
         actions={
           <Button onClick={createProject}>
             <Plus className="size-4" />
@@ -144,8 +144,8 @@ export default function ProjectsPage() {
       ) : !hasProjects ? (
         <EmptyPanel
           icon={FolderOpen}
-          title="Aún no hay proyectos"
-          description="Crea tu primer proyecto importando una especificación OpenAPI y configurando la autenticación."
+          title="No projects yet"
+          description="Create your first project to import an OpenAPI specification and run a security scan."
           action={
             <Button onClick={createProject}>
               <Plus className="size-4" />
@@ -219,11 +219,11 @@ export default function ProjectsPage() {
 
       <DeleteConfirmationDialog
         open={Boolean(deleteTarget)}
-        title="Eliminar proyecto"
-        description="Este proyecto, su especificación, sus escaneos y todos sus hallazgos se eliminarán permanentemente. Esta acción no se puede deshacer."
-        confirmLabel="Eliminar proyecto"
-        cancelLabel="Cancelar"
-        deletingLabel="Eliminando..."
+        title="Delete project"
+        description="This project, its specification, its scans and all of its findings will be permanently deleted. This action cannot be undone."
+        confirmLabel="Delete project"
+        cancelLabel="Cancel"
+        deletingLabel="Deleting…"
         isDeleting={deleteMutation.isPending}
         onOpenChange={(open: boolean) => !open && setDeleteTarget(null)}
         onConfirm={async () => {

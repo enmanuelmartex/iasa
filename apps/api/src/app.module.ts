@@ -4,6 +4,8 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bullmq';
 import { ThrottlerModule } from '@nestjs/throttler';
 import configuration from './config/configuration';
+import { validateEnv } from './config/env.validation';
+import { CryptoModule } from './common/crypto/crypto.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -22,6 +24,8 @@ import { AuditModule } from './modules/audit/audit.module';
       isGlobal: true,
       load: [configuration],
       envFilePath: ['.env.local', '.env'],
+      // Aborts boot when a security-critical variable is missing or weak.
+      validate: validateEnv,
     }),
 
     EventEmitterModule.forRoot({
@@ -63,6 +67,7 @@ import { AuditModule } from './modules/audit/audit.module';
       },
     ]),
 
+    CryptoModule,
     PrismaModule,
     AuthModule,
     UsersModule,
