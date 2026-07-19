@@ -76,12 +76,69 @@ enum Severity {
   INFO
 }
 
+/// Triage state of a legacy per-scan Finding.
+/// Superseded by IssueStatus, which lives on the persistent SecurityIssue.
+/// Retained while the Finding model coexists; removed in Phase 1B.
 enum FindingStatus {
   OPEN
   CONFIRMED
   FALSE_POSITIVE
   RESOLVED
   ACCEPTED_RISK
+}
+
+/// Triage state of a persistent SecurityIssue.
+///
+/// The state belongs to the issue, not to any single detection: it survives
+/// rescans and the deletion of the scan that first produced it.
+enum IssueStatus {
+  /// Detected and not yet triaged.
+  OPEN
+  /// A human has reviewed it and accepts it is real; remediation is pending.
+  ACKNOWLEDGED
+  /// Believed fixed. A later detection reopens it (see reopenCount).
+  RESOLVED
+  /// Real, but accepted as a business decision. Still counts as technical risk.
+  ACCEPTED_RISK
+  /// Judged not a real vulnerability. Never auto-reopened.
+  FALSE_POSITIVE
+}
+
+/// Whether a single detection has been manually verified.
+///
+/// Distinct from IssueStatus: this records confidence in one observation,
+/// not the triage decision for the underlying vulnerability.
+enum OccurrenceValidation {
+  UNVERIFIED
+  VERIFIED
+  REFUTED
+}
+
+/// Trustworthiness of a computed assessment score.
+///
+/// Prevents an incomplete run from being presented as a real result — the
+/// defect where a failed scan displayed a perfect 100.
+enum ScoreStatus {
+  /// No score can be computed: queued, running, failed, cancelled, or no check
+  /// completed successfully. `securityScore` MUST be null.
+  UNAVAILABLE
+  /// Computed, but some planned checks failed or were skipped, so the score
+  /// reflects partial coverage. Must be labelled as provisional in the UI.
+  PROVISIONAL
+  /// Every planned check executed successfully. Only a FINAL score with zero
+  /// findings may legitimately show 100.
+  FINAL
+}
+
+/// Business importance of the API a project represents.
+///
+/// Deliberately separate from Environment: a staging system can be critical,
+/// and a production system can be low-value.
+enum AssetCriticality {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
 enum ReportType {
@@ -156,31 +213,33 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner           User?        @relation("OwnerMembers", fields: [ownerId], references: [id])
-  members         User[]       @relation("OwnerMembers")
-  sessions        Session[]
-  accounts        Account[]
-  sentInvitations Invitation[] @relation("InvitedByAdmin")
-  projects         Project[]
-  apiKeys          ApiKey[]
-  auditLogs        AuditLog[]
-  pluginUserConfigs PluginUserConfig[]
-  scanProfiles     ScanProfile[]
+  owner              User?               @relation("OwnerMembers", fields: [ownerId], references: [id])
+  members            User[]              @relation("OwnerMembers")
+  sessions           Session[]
+  accounts           Account[]
+  sentInvitations    Invitation[]        @relation("InvitedByAdmin")
+  projects           Project[]
+  apiKeys            ApiKey[]
+  auditLogs          AuditLog[]
+  pluginUserConfigs  PluginUserConfig[]
+  scanProfiles       ScanProfile[]
+  assignedIssues     SecurityIssue[]     @relation("IssueAssignee")
+  issueStatusChanges IssueStatusChange[] @relation("IssueStatusActor")
 
   @@map("users")
 }
 
 model ApiKey {
-  id          String    @id @default(cuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name        String
-  keyHash     String    @unique
-  keyPreview  String
-  lastUsedAt  DateTime?
-  expiresAt   DateTime?
-  isActive    Boolean   @default(true)
-  scopes      String[]  @default(["read", "write"])
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  keyHash    String    @unique
+  keyPreview String
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  isActive   Boolean   @default(true)
+  scopes     String[]  @default(["read", "write"])
 
   createdAt DateTime @default(now())
 
@@ -202,6 +261,8 @@ model Session {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Better Auth resolves and revokes a user's sessions by userId.
+  @@index([userId])
   @@map("sessions")
 }
 
@@ -221,6 +282,8 @@ model Account {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  /// Better Auth looks up linked accounts by userId on every sign-in.
+  @@index([userId])
   @@map("accounts")
 }
 
@@ -259,27 +322,37 @@ model Invitation {
 // =============================================================================
 
 model Project {
-  id          String      @id @default(cuid())
-  name        String
-  description String?
-  baseUrl     String
-  environment Environment @default(DEVELOPMENT)
-  tags        String[]    @default([])
-  isActive    Boolean     @default(true)
-  status      ProjectStatus @default(READY)
-  setupStep   Int           @default(3)
-  completedAt DateTime?
+  id               String           @id @default(cuid())
+  name             String
+  description      String?
+  baseUrl          String
+  environment      Environment      @default(DEVELOPMENT)
+  /// Business importance of this API. Feeds security posture weighting.
+  /// Separate from `environment`, which describes where it runs, not what it is worth.
+  assetCriticality AssetCriticality @default(MEDIUM)
+  tags             String[]         @default([])
+  isActive         Boolean          @default(true)
+  status           ProjectStatus    @default(READY)
+  setupStep        Int              @default(3)
+  completedAt      DateTime?
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  apiSpec     ApiSpec?
-  assessments Assessment[]
-  secrets     ProjectSecret[]
+  apiSpec        ApiSpec?
+  assessments    Assessment[]
+  secrets        ProjectSecret[]
+  /// Persistent vulnerabilities. Owned by the project so scan deletion cannot
+  /// remove them.
+  securityIssues SecurityIssue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Every project listing is scoped to the owner and to active projects.
+  @@index([userId, isActive])
+  /// Dashboard splits projects by setup state (drafts vs ready-to-scan).
+  @@index([userId, status])
   @@map("projects")
 }
 
@@ -288,7 +361,7 @@ model ProjectSecret {
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   key       String
-  value     String  // AES-256 encrypted
+  value     String // AES-256 encrypted
   isActive  Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -307,13 +380,13 @@ model ApiSpec {
   projectId String  @unique
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  source    SpecSource
-  url       String?
-  rawSpec   Json
-  parsed    Json
-  version   String?
-  title     String?
-  format    String?    @default("openapi")
+  source  SpecSource
+  url     String?
+  rawSpec Json
+  parsed  Json
+  version String?
+  title   String?
+  format  String?    @default("openapi")
 
   authConfig AuthConfig?
   endpoints  Endpoint[]
@@ -325,27 +398,27 @@ model ApiSpec {
 }
 
 model AuthConfig {
-  id        String   @id @default(cuid())
-  apiSpecId String   @unique
-  apiSpec   ApiSpec  @relation(fields: [apiSpecId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  apiSpecId String  @unique
+  apiSpec   ApiSpec @relation(fields: [apiSpecId], references: [id], onDelete: Cascade)
 
-  type      AuthType @default(NONE)
+  type AuthType @default(NONE)
 
   // Bearer token
-  token     String?  // encrypted
+  token String? // encrypted
 
   // Basic auth
-  username  String?
-  password  String?  // encrypted
+  username String?
+  password String? // encrypted
 
   // API Key
-  apiKey    String?  // encrypted
-  apiKeyHeader String? @default("X-API-Key")
+  apiKey         String? // encrypted
+  apiKeyHeader   String? @default("X-API-Key")
   apiKeyLocation String? @default("header") // header | query
 
   // OAuth2
-  clientId     String?  // encrypted
-  clientSecret String?  // encrypted
+  clientId     String? // encrypted
+  clientSecret String? // encrypted
   tokenUrl     String?
   scopes       String[]
 
@@ -373,11 +446,12 @@ model Endpoint {
   requestBody Json?
   responses   Json?
   security    Json?
-  deprecated  Boolean  @default(false)
+  deprecated  Boolean    @default(false)
 
   findings Finding[]
 
-  createdAt DateTime @default(now())
+  createdAt          DateTime            @default(now())
+  findingOccurrences FindingOccurrence[]
 
   @@unique([apiSpecId, path, method])
   @@map("endpoints")
@@ -388,30 +462,41 @@ model Endpoint {
 // =============================================================================
 
 model Assessment {
-  id        String           @id @default(cuid())
+  id        String  @id @default(cuid())
   projectId String
-  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  status    AssessmentStatus @default(PENDING)
-  progress  Int              @default(0)  // 0-100
+  status      AssessmentStatus @default(PENDING)
+  progress    Int              @default(0) // 0-100
   currentStep String?
-  jobId     String?          // BullMQ job ID
+  jobId       String? // BullMQ job ID
 
-  config    AssessmentConfig?
-  summary   AssessmentSummary?
+  config  AssessmentConfig?
+  summary AssessmentSummary?
 
   startedAt   DateTime?
   completedAt DateTime?
-  duration    Int?            // seconds
+  duration    Int? // seconds
 
-  findings         Finding[]
-  reports          Report[]
-  logs             AssessmentLog[]
-  pluginExecutions PluginExecution[]
+  /// Legacy per-scan findings. Superseded by `occurrences`; removed in Phase 1B.
+  findings           Finding[]
+  occurrences        FindingOccurrence[]
+  /// Triage transitions this scan caused. SetNull on the far side, so deleting
+  /// the scan detaches the history rather than deleting it.
+  issueStatusChanges IssueStatusChange[]
+  reports            Report[]
+  logs               AssessmentLog[]
+  pluginExecutions   PluginExecution[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Scan history for one project, newest first (project detail → Scans tab).
+  @@index([projectId, createdAt])
+  /// "Running / failed scans needing attention" on the dashboard.
+  @@index([projectId, status])
+  /// Global scans list filtered by status across all projects.
+  @@index([status, createdAt])
   @@map("assessments")
 }
 
@@ -421,17 +506,17 @@ model AssessmentConfig {
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
   // Execution mode controls which plugins run
-  executionMode          String   @default("all")   // "all" | "profile" | "manual"
-  scanProfileId          String?
-  scanProfile            ScanProfile? @relation(fields: [scanProfileId], references: [id], onDelete: SetNull)
-  manualPlugins          String[]  @default([])     // plugin IDs for mode="manual"
-  resolvedPlugins        String[]  @default([])     // immutable effective plugin selection for this run
+  executionMode   String       @default("all") // "all" | "profile" | "manual"
+  scanProfileId   String?
+  scanProfile     ScanProfile? @relation(fields: [scanProfileId], references: [id], onDelete: SetNull)
+  manualPlugins   String[]     @default([]) // plugin IDs for mode="manual"
+  resolvedPlugins String[]     @default([]) // immutable effective plugin selection for this run
 
   // These settings always apply regardless of mode
-  enableAiAnalysis       Boolean   @default(true)
-  maxRequestsPerEndpoint Int       @default(10)
-  requestDelayMs         Int       @default(200)
-  timeoutMs              Int       @default(10000)
+  enableAiAnalysis       Boolean @default(true)
+  maxRequestsPerEndpoint Int     @default(10)
+  requestDelayMs         Int     @default(200)
+  timeoutMs              Int     @default(10000)
 
   createdAt DateTime @default(now())
 
@@ -443,21 +528,56 @@ model AssessmentSummary {
   assessmentId String     @unique
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
-  totalEndpoints   Int @default(0)
-  testedEndpoints  Int @default(0)
-  totalFindings    Int @default(0)
-  criticalCount    Int @default(0)
-  highCount        Int @default(0)
-  mediumCount      Int @default(0)
-  lowCount         Int @default(0)
-  infoCount        Int @default(0)
+  totalEndpoints  Int @default(0)
+  testedEndpoints Int @default(0)
+  totalFindings   Int @default(0)
+  criticalCount   Int @default(0)
+  highCount       Int @default(0)
+  mediumCount     Int @default(0)
+  lowCount        Int @default(0)
+  infoCount       Int @default(0)
 
-  securityScore    Float @default(100) // 0-100
-  riskLevel        String @default("LOW") // LOW | MEDIUM | HIGH | CRITICAL
+  /// Immutable snapshot of the score at scan time, 0-100.
+  ///
+  /// NULLABLE AND WITHOUT A DEFAULT, deliberately. The previous `@default(100)`
+  /// was the root cause of failed scans reporting a perfect score: the summary
+  /// row was created before plugins ran, and the failure path never updated it,
+  /// leaving a persisted 100. `null` now means "no score", and a real 0 stays 0.
+  ///
+  /// A score is only meaningful together with `scoreStatus`.
+  securityScore    Float?
+  /// UNAVAILABLE ⇒ securityScore MUST be null. Only FINAL may show 100.
+  scoreStatus      ScoreStatus @default(UNAVAILABLE)
+  /// Formula version that produced the score, e.g. "score-v1". Lets a future
+  /// formula coexist without silently reinterpreting historical numbers.
+  scoreVersion     String?
+  scoreComputedAt  DateTime?
+  /// Human-readable breakdown of what drove the score (severity contributions,
+  /// exposure multipliers, coverage), so the number is explainable in the UI.
+  scoreExplanation Json?
 
-  owaspCoverage    Json? // OWASP categories covered
-  pluginResults    Json? // PluginExecutionPlan — available / executed / skipped / versions / durationMs / findingCounts
-  aiStatus         Json? // AiAnalysisMeta — provider / model / available / analyzed / skipped / durationMs / tokensUsed / reason
+  riskLevel String @default("LOW") // LOW | MEDIUM | HIGH | CRITICAL
+
+  // ── Execution scope ────────────────────────────────────────────────────────
+  // Kept separate from the score: coverage answers "how much did we look at?",
+  // the score answers "how bad is what we found?". Conflating them is what made
+  // the old OWASP "coverage" chart meaningless (it counted findings).
+  //
+  // In score-v1 these are counted in PLUGIN executions, the most granular unit
+  // the scanner records today. Per-endpoint and per-rule execution tracking does
+  // not exist yet, so coveragePercent must not be presented as endpoint or rule
+  // coverage.
+  plannedChecks    Int    @default(0)
+  successfulChecks Int    @default(0)
+  failedChecks     Int    @default(0)
+  skippedChecks    Int    @default(0)
+  executionErrors  Int    @default(0)
+  /// successfulChecks / plannedChecks × 100. Null when nothing was planned.
+  coveragePercent  Float?
+
+  owaspCoverage Json? // OWASP categories covered
+  pluginResults Json? // PluginExecutionPlan — available / executed / skipped / versions / durationMs / findingCounts
+  aiStatus      Json? // AiAnalysisMeta — provider / model / available / analyzed / skipped / durationMs / tokensUsed / reason
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -470,12 +590,14 @@ model AssessmentLog {
   assessmentId String
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
-  level     String  // info | warn | error
+  level     String // info | warn | error
   plugin    String?
   message   String
   metadata  Json?
   timestamp DateTime @default(now())
 
+  /// Scan detail loads this scan's logs in timestamp order.
+  @@index([assessmentId, timestamp])
   @@map("assessment_logs")
 }
 
@@ -496,8 +618,8 @@ model Finding {
   severity      Severity
   cvssScore     Float?
   cvssVector    String?
-  owaspCategory String    // e.g. "API1:2023"
-  cweId         String?   // e.g. "CWE-639"
+  owaspCategory String // e.g. "API1:2023"
+  cweId         String? // e.g. "CWE-639"
   pluginId      String
 
   // Description
@@ -522,13 +644,238 @@ model Finding {
   aiGeneratedAt DateTime?
 
   // Status
-  status       FindingStatus @default(OPEN)
-  notes        String?
+  status FindingStatus @default(OPEN)
+  notes  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Legacy reads: findings of one scan, and the assessment detail include.
+  /// Removed together with this model in Phase 1B.
+  @@index([assessmentId])
   @@map("findings")
+}
+
+// =============================================================================
+// PERSISTENT VULNERABILITY DOMAIN
+//
+// Replaces the single `Finding` model, which conflated two different lifetimes
+// in one row: per-scan detection data (evidence, request/response, assessmentId)
+// and cross-scan triage state (status, notes). That conflation meant the same
+// vulnerability was re-inserted on every scan as a fresh OPEN row, and deleting
+// a scan cascaded away the triage work attached to it.
+//
+//   SecurityIssue     — the vulnerability. Persistent, owned by the PROJECT.
+//   FindingOccurrence — one detection of it by one scan. Immutable.
+//   IssueStatusChange — auditable history of triage decisions.
+//
+// `Finding` still exists during Phase 1A so this change is purely additive.
+// Phase 1B removes it.
+// =============================================================================
+
+/// A vulnerability that persists across scans, identified by a fingerprint.
+///
+/// Hangs off Project, never off Assessment: deleting a scan must not be able to
+/// erase a vulnerability or the triage decisions made about it.
+model SecurityIssue {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // ── Identity ───────────────────────────────────────────────────────────────
+  //
+  // fingerprint = SHA-256 of the canonical string
+  //   v1|projectId|pluginId|ruleId|METHOD|normalizedRoute|component
+  //
+  // The inputs are stored alongside the hash so identity stays explainable and
+  // recomputable, and so a future v2 formula can be backfilled by comparison.
+  // Deliberately excluded from the hash: title, description, severity, evidence,
+  // AI output, timestamps, occurrence ids — anything that may change wording or
+  // scoring without changing which vulnerability is being described.
+  fingerprint        String
+  fingerprintVersion String @default("v1")
+
+  pluginId        String
+  ruleId          String
+  /// Uppercase HTTP method, or "GLOBAL" for project-wide issues.
+  method          String
+  /// Template path (`/users/{id}`), never a concrete path. "/" when GLOBAL.
+  normalizedRoute String
+  /// Stable identifier of the affected area: "endpoint", "header:authorization",
+  /// "query:user_id", "path:param", "body:password", "response:content-type",
+  /// or "project" for project-wide issues.
+  component       String
+
+  // ── Current presentation ───────────────────────────────────────────────────
+  // Mutable: refreshed from the newest occurrence. Rewording a check's message
+  // must never change issue identity, so none of this feeds the fingerprint.
+  title         String
+  description   String
+  severity      Severity
+  owaspCategory String
+  cweId         String?
+  cvssScore     Float?
+  cvssVector    String?
+
+  // ── Triage ─────────────────────────────────────────────────────────────────
+  status IssueStatus @default(OPEN)
+  notes  String?
+
+  assigneeId String?
+  assignee   User?   @relation("IssueAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  /// When an ACCEPTED_RISK acceptance lapses. On expiry the issue returns to OPEN.
+  acceptedRiskUntil DateTime?
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  resolvedAt      DateTime?
+  reopenedAt      DateTime?
+  reopenCount     Int       @default(0)
+  occurrenceCount Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  occurrences   FindingOccurrence[]
+  statusChanges IssueStatusChange[]
+
+  /// The core deduplication guarantee: one logical vulnerability per project per
+  /// fingerprint formula. A rescan finds this row instead of inserting a duplicate.
+  /// Versioned so introducing a v2 formula cannot silently collide with v1 rows.
+  @@unique([projectId, fingerprintVersion, fingerprint])
+  /// Issues list filtered by status; project posture counts open/confirmed issues.
+  @@index([projectId, status])
+  /// Issues list filtered/sorted by severity; posture weights issues by severity.
+  @@index([projectId, severity])
+  /// "Recently seen" ordering on the project Issues tab and staleness checks.
+  @@index([projectId, lastSeenAt])
+  /// "Issues assigned to me".
+  @@index([assigneeId])
+  /// Detection-coverage and per-check reporting within a project.
+  @@index([projectId, pluginId])
+  /// Sweep for lapsed risk acceptances that must return to OPEN.
+  @@index([status, acceptedRiskUntil])
+  @@map("security_issues")
+}
+
+/// One immutable detection of a SecurityIssue by one assessment.
+///
+/// Carries `*Snapshot` copies of everything a report needs, so historical
+/// reports stay accurate even after the spec is re-imported (which deletes and
+/// recreates every Endpoint row), a check is reworded, or a severity is retuned.
+model FindingOccurrence {
+  id           String        @id @default(cuid())
+  issueId      String
+  issue        SecurityIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  assessmentId String
+  assessment   Assessment    @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  /// Best-effort link to the endpoint. SetNull because re-importing a spec
+  /// recreates endpoints with new ids; the snapshots below are the durable record.
+  endpointId String?
+  endpoint   Endpoint? @relation(fields: [endpointId], references: [id], onDelete: SetNull)
+
+  /// Deterministic idempotency token: SHA-256 of `fingerprintVersion|fingerprint`.
+  ///
+  /// Derived purely from issue identity, so the worker can compute it before any
+  /// row exists and persist with skipDuplicates. Combined with the unique
+  /// constraint below, a BullMQ retry of a partially-completed job re-inserts
+  /// nothing instead of duplicating detections. Never derived from time,
+  /// randomness or row ids.
+  occurrenceKey String
+
+  // ── Immutable snapshots ────────────────────────────────────────────────────
+  methodSnapshot        String
+  pathSnapshot          String
+  operationIdSnapshot   String?
+  pluginIdSnapshot      String
+  pluginVersionSnapshot String
+  ruleIdSnapshot        String
+  severitySnapshot      Severity
+  cvssSnapshot          Float?
+  owaspSnapshot         String
+  cweSnapshot           String?
+  titleSnapshot         String
+  descriptionSnapshot   String
+  impactSnapshot        String?
+  remediationSnapshot   String?
+
+  // ── Evidence (redacted before persistence — see common/utils/redact.util) ──
+  evidence     Json?
+  httpRequest  String?
+  httpResponse String?
+  affectedUrl  String?
+  /// The affected component for this detection; mirrors SecurityIssue.component.
+  location     String
+
+  validation OccurrenceValidation @default(UNVERIFIED)
+
+  // ── Provenance ─────────────────────────────────────────────────────────────
+  /// Hash of the effective scan configuration, so a result can be tied to the
+  /// exact settings that produced it.
+  assessmentConfigHash String?
+  specVersionSnapshot  String?
+
+  detectedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  /// Idempotency guarantee. Because occurrenceKey is a pure function of issue
+  /// identity, this enforces "at most one detection of a given vulnerability per
+  /// scan" and makes worker retries safe at the database level rather than
+  /// relying on in-memory bookkeeping.
+  @@unique([assessmentId, occurrenceKey])
+  /// Occurrence history on the issue detail page, newest first.
+  @@index([issueId, detectedAt])
+  /// "Findings from this scan" on the scan detail page.
+  @@index([assessmentId])
+  /// "Issues affecting this endpoint" on the project Endpoints tab.
+  @@index([endpointId])
+  @@map("finding_occurrences")
+}
+
+/// Auditable history of every triage transition on an issue.
+///
+/// Written on every status change, including automatic ones (reopen on
+/// recurrence, expiry of an accepted risk). `SecurityIssue.status` is the
+/// current value; this table is why it holds that value.
+model IssueStatusChange {
+  id      String        @id @default(cuid())
+  issueId String
+  issue   SecurityIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// Null on the initial transition into OPEN when the issue is created.
+  fromStatus IssueStatus?
+  toStatus   IssueStatus
+
+  /// Null when the change was made by the system rather than a person.
+  actorId String?
+  actor   User?   @relation("IssueStatusActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  /// The scan that triggered an automatic change, when applicable.
+  ///
+  /// SetNull — deleting a scan must never destroy triage history. This is the
+  /// specific cascade that made the old model lose triage work.
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  /// Required by the UI for FALSE_POSITIVE, ACCEPTED_RISK and RESOLVED.
+  reason String?
+
+  /// True when the system made the change (recurrence reopen, acceptance expiry).
+  automatic Boolean @default(false)
+
+  /// Expiry recorded at the moment risk was accepted.
+  acceptedRiskUntil DateTime?
+
+  createdAt DateTime @default(now())
+
+  /// Activity timeline for one issue, newest first.
+  @@index([issueId, createdAt])
+  /// "What did this user triage?" for audit review.
+  @@index([actorId])
+  @@map("issue_status_changes")
 }
 
 // =============================================================================
@@ -545,11 +892,13 @@ model Report {
   title    String
   filePath String?
   fileSize Int?
-  content  String?   // For text-based formats
-  checksum String?   // SHA256 of file
+  content  String? // For text-based formats
+  checksum String? // SHA256 of file
 
   generatedAt DateTime @default(now())
 
+  /// Reports of one scan (reports list grouping, scan detail → Reports).
+  @@index([assessmentId])
   @@map("reports")
 }
 
@@ -558,47 +907,47 @@ model Report {
 // =============================================================================
 
 model Plugin {
-  id                   String         @id          // stable slug: "bola", "jwt-analysis"
-  name                 String
-  version              String         @default("1.0.0")
-  description          String
-  longDescription      String?
-  author               String         @default("IASA Core Team")
-  category             PluginCategory
-  owaspMappings        String[]
-  cweIds               String[]       @default([])
-  tags                 String[]       @default([])
-  isBuiltin            Boolean        @default(true)
-  isEnabled            Boolean        @default(true)   // global default
-  configSchema         Json?                           // JSON Schema for config UI
-  defaultConfig        Json?
-  permissions          String[]       @default([])
-  documentationUrl     String?
-  changelog            String?
-  minimumCoreVersion   String         @default("1.0.0")
-  license              String         @default("MIT")
+  id                 String         @id // stable slug: "bola", "jwt-analysis"
+  name               String
+  version            String         @default("1.0.0")
+  description        String
+  longDescription    String?
+  author             String         @default("IASA Core Team")
+  category           PluginCategory
+  owaspMappings      String[]
+  cweIds             String[]       @default([])
+  tags               String[]       @default([])
+  isBuiltin          Boolean        @default(true)
+  isEnabled          Boolean        @default(true) // global default
+  configSchema       Json? // JSON Schema for config UI
+  defaultConfig      Json?
+  permissions        String[]       @default([])
+  documentationUrl   String?
+  changelog          String?
+  minimumCoreVersion String         @default("1.0.0")
+  license            String         @default("MIT")
 
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  userConfigs          PluginUserConfig[]
-  executions           PluginExecution[]
+  userConfigs PluginUserConfig[]
+  executions  PluginExecution[]
 
   @@map("plugins")
 }
 
 model PluginUserConfig {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   pluginId  String
   userId    String
-  isEnabled Boolean  @default(true)
-  config    Json?                                // user overrides for configSchema fields
+  isEnabled Boolean @default(true)
+  config    Json? // user overrides for configSchema fields
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  plugin    Plugin   @relation(fields: [pluginId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plugin Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([pluginId, userId])
   @@map("plugin_user_configs")
@@ -617,11 +966,15 @@ model PluginExecution {
   errorMessage  String?
   metadata      Json?
 
-  createdAt     DateTime              @default(now())
+  createdAt DateTime @default(now())
 
-  plugin        Plugin                @relation(fields: [pluginId], references: [id], onDelete: Cascade)
-  assessment    Assessment?           @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+  plugin     Plugin      @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  assessment Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
 
+  /// Execution history for one check (plugins/:id/executions), newest first.
+  @@index([pluginId, startedAt])
+  /// Which checks actually ran in a scan — the basis for scope-aware comparison.
+  @@index([assessmentId])
   @@map("plugin_executions")
 }
 
@@ -630,16 +983,16 @@ model ScanProfile {
   name           String
   description    String?
   icon           String?
-  userId         String?                        // null = system profile
+  userId         String? // null = system profile
   isSystem       Boolean  @default(false)
-  enabledPlugins String[]                       // array of plugin IDs
-  pluginConfigs  Json?                          // per-plugin config overrides
+  enabledPlugins String[] // array of plugin IDs
+  pluginConfigs  Json? // per-plugin config overrides
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user               User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assessmentConfigs  AssessmentConfig[]
+  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assessmentConfigs AssessmentConfig[]
 
   @@map("scan_profiles")
 }
@@ -652,10 +1005,10 @@ model ScanProfile {
 /// API keys stored AES-256-CBC encrypted (iv_hex:ciphertext_hex).
 model AiProviderConfig {
   id               String    @id @default(cuid())
-  provider         String    @unique  // openai | grok | claude | gemini | ollama
+  provider         String    @unique // openai | grok | claude | gemini | ollama
   model            String?
-  apiKey           String?            // encrypted
-  baseUrl          String?            // Ollama / custom
+  apiKey           String? // encrypted
+  baseUrl          String? // Ollama / custom
   isActive         Boolean   @default(false)
   profile          String    @default("balanced")
   analyzeCritical  Boolean   @default(true)
@@ -695,5 +1048,9 @@ model AuditLog {
 
   createdAt DateTime @default(now())
 
+  /// Audit log default view: newest first, paginated.
+  @@index([createdAt])
+  /// Audit log filtered by user.
+  @@index([userId, createdAt])
   @@map("audit_logs")
 }
