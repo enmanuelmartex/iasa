@@ -54,6 +54,11 @@ enum AuthType {
   CUSTOM
 }
 
+enum ProjectStatus {
+  DRAFT
+  READY
+}
+
 enum AssessmentStatus {
   PENDING
   QUEUED
@@ -261,6 +266,9 @@ model Project {
   environment Environment @default(DEVELOPMENT)
   tags        String[]    @default([])
   isActive    Boolean     @default(true)
+  status      ProjectStatus @default(READY)
+  setupStep   Int           @default(3)
+  completedAt DateTime?
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -417,6 +425,7 @@ model AssessmentConfig {
   scanProfileId          String?
   scanProfile            ScanProfile? @relation(fields: [scanProfileId], references: [id], onDelete: SetNull)
   manualPlugins          String[]  @default([])     // plugin IDs for mode="manual"
+  resolvedPlugins        String[]  @default([])     // immutable effective plugin selection for this run
 
   // These settings always apply regardless of mode
   enableAiAnalysis       Boolean   @default(true)

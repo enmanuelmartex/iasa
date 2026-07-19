@@ -3,34 +3,112 @@
 @tailwind utilities;
 
 @layer base {
+  /* Light theme (default) */
   :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 263.4 70% 50.4%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --background: 0 0% 97%;
+    --foreground: 0 0% 7%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 7%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    /* IASA brand: #4FC3E8. Dark ink keeps filled controls AA-readable. */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 210 40% 94%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 0 0% 93%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 0 0% 92%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 42%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 263.4 70% 50.4%;
-    --radius: 0.5rem;
+    --success: 142 65% 34%;
+    --success-foreground: 210 40% 98%;
+    --border: 0 0% 87%;
+    --input: 0 0% 87%;
+    --ring: 250 91% 68%;
+    --radius: 0.625rem;
 
-    /* Severity colors as CSS vars */
+    /* Brand secondary data accent (cyan) — used sparingly */
+    --cyan: 194 77% 48%;
+
+    /* Severity colors — semantic, independent of brand */
+    --severity-critical: 0 74% 48%;
+    --severity-high: 24 90% 45%;
+    --severity-medium: 38 92% 42%;
+    --severity-low: 199 85% 40%;
+    --severity-info: 215 16% 42%;
+
+    /* Chart palette */
+    --chart-1: 194 77% 48%;
+    --chart-2: 217 82% 55%;
+    --chart-3: 262 70% 55%;
+    --chart-4: 38 92% 42%;
+    --chart-5: 142 65% 34%;
+
+    /* Sidebar surface — subtly distinct from the main canvas (inset variant) */
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 194 77% 48%;
+    --sidebar-primary-foreground: 222 47% 9%;
+    --sidebar-accent: 0 0% 93%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 0 0% 88%;
+    --sidebar-ring: 250 91% 68%;
+    --brand-violet: 250 91% 68%;
+    --brand-blue: 231 94% 67%;
+    --brand-cyan: 199 92% 60%;
+  }
+
+  /* Dark theme */
+  .dark {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 63%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 210 40% 96%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --success: 142 71% 45%;
+    --success-foreground: 222 47% 8%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 250 91% 68%;
+
+    --cyan: 194 77% 61%;
+
     --severity-critical: 0 84% 60%;
     --severity-high: 25 95% 53%;
-    --severity-medium: 48 96% 53%;
-    --severity-low: 217 91% 60%;
-    --severity-info: 220 9% 46%;
+    --severity-medium: 38 92% 50%;
+    --severity-low: 199 89% 58%;
+    --severity-info: 215 16% 57%;
+
+    --chart-1: 194 77% 61%;
+    --chart-2: 217 91% 66%;
+    --chart-3: 262 83% 66%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 142 71% 45%;
+
+    --sidebar: 0 0% 8%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 194 77% 61%;
+    --sidebar-primary-foreground: 222 47% 8%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 0 0% 16%;
+    --sidebar-ring: 250 91% 68%;
+    --brand-violet: 250 91% 68%;
+    --brand-blue: 231 94% 67%;
+    --brand-cyan: 199 92% 60%;
   }
 }
 
@@ -58,36 +136,47 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground;
+    @apply bg-muted-foreground/40;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
 @layer components {
   /* Severity badge variants */
   .severity-critical {
-    @apply bg-red-500/10 text-red-500 border border-red-500/20;
+    @apply bg-severity-critical/10 text-severity-critical border border-severity-critical/20;
   }
   .severity-high {
-    @apply bg-orange-500/10 text-orange-500 border border-orange-500/20;
+    @apply bg-severity-high/10 text-severity-high border border-severity-high/20;
   }
   .severity-medium {
-    @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
+    @apply bg-severity-medium/10 text-severity-medium border border-severity-medium/20;
   }
   .severity-low {
-    @apply bg-blue-500/10 text-blue-400 border border-blue-500/20;
+    @apply bg-severity-low/10 text-severity-low border border-severity-low/20;
   }
   .severity-info {
-    @apply bg-slate-500/10 text-slate-400 border border-slate-500/20;
+    @apply bg-severity-info/10 text-severity-info border border-severity-info/20;
   }
 
   /* Scanner terminal */
   .scanner-terminal {
-    @apply bg-[#0a0a0f] border border-white/5 rounded-lg font-mono text-sm;
+    @apply bg-background border border-border rounded-lg font-mono text-sm;
   }
 
   /* Glass card */
   .glass-card {
-    @apply bg-white/[0.02] border border-white/[0.06] backdrop-blur-sm;
+    @apply bg-card/60 border border-border backdrop-blur-sm;
   }
 
   /* Security score ring */
@@ -97,26 +186,14 @@
 
   /* Grid pattern background */
   .grid-bg {
-    background-image: linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px),
-                      linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
+    background-image: linear-gradient(hsl(var(--foreground) / 0.03) 1px, transparent 1px),
+                      linear-gradient(90deg, hsl(var(--foreground) / 0.03) 1px, transparent 1px);
     background-size: 40px 40px;
   }
 
-  /* Glow effects */
-  .glow-purple {
-    box-shadow: 0 0 40px rgba(124, 58, 237, 0.15);
-  }
-
-  .glow-red {
-    box-shadow: 0 0 40px rgba(239, 68, 68, 0.15);
-  }
-
-  /* Animated gradient border */
-  .gradient-border {
-    position: relative;
-    background: linear-gradient(hsl(var(--card)), hsl(var(--card))) padding-box,
-                linear-gradient(135deg, hsl(var(--primary)), transparent 50%) border-box;
-    border: 1px solid transparent;
+  /* Restrained brand glow — used sparingly (auth pages only) */
+  .glow-brand {
+    box-shadow: 0 0 40px hsl(var(--primary) / 0.15);
   }
 
   /* Status indicator */
@@ -124,15 +201,15 @@
     @apply w-2 h-2 rounded-full;
   }
   .status-dot.running {
-    @apply bg-violet-500 animate-pulse;
+    @apply bg-primary animate-pulse;
   }
   .status-dot.completed {
-    @apply bg-emerald-500;
+    @apply bg-success;
   }
   .status-dot.failed {
-    @apply bg-red-500;
+    @apply bg-destructive;
   }
   .status-dot.pending {
-    @apply bg-slate-500;
+    @apply bg-muted-foreground;
   }
 }

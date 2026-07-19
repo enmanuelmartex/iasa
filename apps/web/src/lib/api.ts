@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 
@@ -59,6 +59,9 @@ export const projectsApi = {
   list: () => api.get('/projects').then((r) => r.data),
   get: (id: string) => api.get(`/projects/${id}`).then((r) => r.data),
   create: (data: any) => api.post('/projects', data).then((r) => r.data),
+  createDraft: (data: any) => api.post('/projects/drafts', data).then((r) => r.data),
+  saveDraft: (id: string, data: any) => api.put(`/projects/${id}/draft`, data).then((r) => r.data),
+  finalize: (id: string) => api.post(`/projects/${id}/finalize`).then((r) => r.data),
   update: (id: string, data: any) => api.put(`/projects/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/projects/${id}`).then((r) => r.data),
   importFromUrl: (id: string, url: string) =>
@@ -200,7 +203,9 @@ export const reportsApi = {
       { params: { format, type }, responseType: 'blob' },
     );
     const ext = { JSON: 'json', HTML: 'html', MARKDOWN: 'md', SARIF: 'sarif' }[format] ?? 'txt';
-    const blob = new Blob([response.data], { type: response.headers['content-type'] });
+    const rawContentType = response.headers['content-type'];
+    const contentType = typeof rawContentType === 'string' ? rawContentType : undefined;
+    const blob = new Blob([response.data], { type: contentType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -208,4 +213,12 @@ export const reportsApi = {
     a.click();
     URL.revokeObjectURL(url);
   },
+};
+
+// Finance — estimated AI usage cost
+export const financeApi = {
+  summary: (params?: { projectId?: string; from?: string; to?: string }) =>
+    api.get('/finance/summary', { params }).then((r) => r.data),
+  usage: (params?: { page?: number; pageSize?: number; projectId?: string; provider?: string; from?: string; to?: string }) =>
+    api.get('/finance/usage', { params }).then((r) => r.data),
 };

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
-import { Toaster } from 'sonner';
+import { ThemedToaster } from '@/components/layout/themed-toaster';
 import { Providers } from './providers';
 import './globals.css';
 
@@ -31,21 +31,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} ${mono.variable} font-sans min-h-screen bg-background`}>
         <Providers>
           {children}
-          <Toaster
-            theme="dark"
-            position="bottom-right"
-            toastOptions={{
-              style: {
-                background: 'hsl(217.2 32.6% 12%)',
-                border: '1px solid hsl(217.2 32.6% 20%)',
-                color: 'hsl(210 40% 98%)',
-              },
-            }}
-          />
+          <ThemedToaster />
         </Providers>
       </body>
     </html>

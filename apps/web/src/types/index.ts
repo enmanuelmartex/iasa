@@ -48,6 +48,9 @@ export interface Project {
   environment: 'DEVELOPMENT' | 'STAGING' | 'PRODUCTION';
   tags: string[];
   isActive: boolean;
+  status: 'DRAFT' | 'READY';
+  setupStep: number;
+  completedAt?: string;
   userId: string;
   apiSpec?: ApiSpec;
   assessments?: Assessment[];
@@ -116,6 +119,7 @@ export interface AssessmentConfig {
   executionMode: 'all' | 'profile' | 'manual';
   scanProfileId?: string;
   manualPlugins?: string[];
+  resolvedPlugins?: string[];
   enableAiAnalysis: boolean;
   maxRequestsPerEndpoint: number;
   requestDelayMs: number;
@@ -411,4 +415,49 @@ export interface ScanProgress {
   currentPlugin?: string;
   completed?: boolean;
   error?: string;
+}
+
+// =============================================================================
+// Finance — estimated AI usage cost (real token usage x static rate table)
+// =============================================================================
+
+export interface AiUsageEvent {
+  id: string;
+  assessmentId: string;
+  projectId: string;
+  project?: { id: string; name: string };
+  provider: string;
+  model?: string;
+  status: string;
+  tokensUsed: number;
+  estimatedCostUsd: number;
+  createdAt: string;
+}
+
+export interface FinanceCostByProvider {
+  provider: string;
+  tokensUsed: number;
+  costUsd: number;
+  count: number;
+}
+
+export interface FinanceTrendPoint {
+  month: string; // YYYY-MM
+  costUsd: number;
+}
+
+export interface FinanceSummary {
+  totalEstimatedCostUsd: number;
+  totalTokensUsed: number;
+  assessmentsWithAi: number;
+  avgCostPerAssessment: number;
+  byProvider: FinanceCostByProvider[];
+  trend: FinanceTrendPoint[];
+}
+
+export interface FinanceUsagePage {
+  items: AiUsageEvent[];
+  total: number;
+  page: number;
+  pageSize: number;
 }

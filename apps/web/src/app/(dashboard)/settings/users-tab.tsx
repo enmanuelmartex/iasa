@@ -2,80 +2,75 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Users,
-  Plus,
-  Shield,
-  Eye,
-  EyeOff,
-  Loader2,
-  MoreHorizontal,
-  UserCheck,
-  UserX,
-  Trash2,
-  Key,
-  ChevronDown,
-  Mail,
-} from 'lucide-react';
+import { IconUsers, IconPlus, IconShield, IconEye, IconEyeOff, IconUserCheck, IconUserX, IconTrash, IconKey, IconMail, IconDotsVertical } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { usersApi } from '@/lib/api';
-import { ManagedUser } from '@/types';
+import type { ManagedUser } from '@/types';
 import { cn } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const ROLE_LABELS: Record<string, string> = {
-  ADMIN:   'Admin',
+  ADMIN: 'Admin',
   ANALYST: 'Analyst',
-  VIEWER:  'Viewer',
+  VIEWER: 'Viewer',
 };
 
 const ROLE_COLORS: Record<string, string> = {
-  ADMIN:   'text-red-400 bg-red-500/10 border-red-500/20',
-  ANALYST: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
-  VIEWER:  'text-slate-400 bg-slate-500/10 border-slate-600/30',
+  ADMIN: 'text-destructive bg-destructive/10 border-destructive/20',
+  ANALYST: 'text-primary bg-primary/10 border-primary/20',
+  VIEWER: 'text-muted-foreground bg-muted border-border',
 };
 
 function RoleBadge({ role }: { role: string }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase',
-        ROLE_COLORS[role] ?? ROLE_COLORS.VIEWER,
-      )}
-    >
+    <Badge variant="outline" className={cn('text-[10px] font-semibold uppercase', ROLE_COLORS[role] ?? ROLE_COLORS.VIEWER)}>
       {ROLE_LABELS[role] ?? role}
-    </span>
+    </Badge>
   );
 }
 
 function StatusBadge({ isActive }: { isActive: boolean }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase',
-        isActive
-          ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-          : 'text-slate-500 bg-slate-800/60 border-slate-700',
-      )}
-    >
+    <Badge variant="outline" className={cn('text-[10px] font-semibold uppercase', isActive ? 'border-success/20 bg-success/10 text-success' : 'border-border bg-muted text-muted-foreground')}>
       {isActive ? 'Active' : 'Disabled'}
-    </span>
+    </Badge>
   );
 }
 
 // ── Invite by Email Modal ─────────────────────────────────────────────────────
 
-function InviteUserModal({ onClose }: { onClose: () => void }) {
+function InviteUserDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [email, setEmail] = useState('');
-  const [role, setRole]   = useState('ANALYST');
+  const [role, setRole] = useState('ANALYST');
 
   const inviteMut = useMutation({
     mutationFn: () => usersApi.invite({ email: email.trim(), role }),
     onSuccess: (data: any) => {
       toast.success(data?.resent ? `Invitation resent to ${email}` : `Invitation sent to ${email}`);
+      setEmail('');
       onClose();
     },
-    onError: (err: any) =>
-      toast.error(err.response?.data?.message ?? 'Failed to send invitation'),
+    onError: (err: any) => toast.error(err.response?.data?.message ?? 'Failed to send invitation'),
   });
 
   function handleSubmit(e: React.FormEvent) {
@@ -85,73 +80,51 @@ function InviteUserModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-        <h2 className="text-base font-semibold text-white mb-1">Invite a team member</h2>
-        <p className="text-xs text-slate-500 mb-5">
-          They'll receive an email with a link to create their account.
-          {!process.env.NEXT_PUBLIC_SMTP_CONFIGURED && (
-            <span className="block mt-1 text-amber-400">
-              Note: SMTP not configured — the invite link will appear in API logs.
-            </span>
-          )}
-        </p>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Invite a team member</DialogTitle>
+          <DialogDescription>
+            They&apos;ll receive an email with a link to create their account.
+            {!process.env.NEXT_PUBLIC_SMTP_CONFIGURED && (
+              <span className="mt-1 block text-severity-medium">Note: SMTP not configured — the invite link will appear in API logs.</span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Email address
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              placeholder="analyst@company.com"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
-            />
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-email">Email address</Label>
+            <Input id="invite-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="analyst@company.com" />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Role</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
-            >
-              <option value="ANALYST">Analyst — can run scans and view findings</option>
-              <option value="VIEWER">Viewer — read-only access</option>
-            </select>
+          <div className="space-y-1.5">
+            <Label>Role</Label>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ANALYST">Analyst — can run scans and view findings</SelectItem>
+                <SelectItem value="VIEWER">Viewer — read-only access</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg py-2 text-sm transition-colors"
-            >
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={inviteMut.isPending || !email.trim()}
-              className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-medium rounded-lg py-2 text-sm transition-colors flex items-center justify-center gap-1.5"
-            >
-              {inviteMut.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            </Button>
+            <Button type="submit" loading={inviteMut.isPending} disabled={!email.trim()}>
               Send invitation
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ── Create User Modal ─────────────────────────────────────────────────────────
 
-interface CreateModalProps {
-  onClose: () => void;
-}
-
-function CreateUserModal({ onClose }: CreateModalProps) {
+function CreateUserDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'ANALYST' });
   const [showPwd, setShowPwd] = useState(false);
@@ -161,6 +134,7 @@ function CreateUserModal({ onClose }: CreateModalProps) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users'] });
       toast.success('User created');
+      setForm({ name: '', email: '', password: '', role: 'ANALYST' });
       onClose();
     },
     onError: (err: any) => toast.error(err.response?.data?.message ?? 'Failed to create user'),
@@ -173,147 +147,131 @@ function CreateUserModal({ onClose }: CreateModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-        <h2 className="text-base font-semibold text-white mb-4">Create User</h2>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create User</DialogTitle>
+        </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Full name</label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              required
-              placeholder="Jane Smith"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
-            />
+          <div className="space-y-1.5">
+            <Label htmlFor="user-name">Full name</Label>
+            <Input id="user-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required placeholder="Jane Smith" />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Email address</label>
-            <input
+          <div className="space-y-1.5">
+            <Label htmlFor="user-email">Email address</Label>
+            <Input
+              id="user-email"
               type="email"
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               required
               placeholder="analyst@company.com"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Temporary password</label>
+          <div className="space-y-1.5">
+            <Label htmlFor="user-password">Temporary password</Label>
             <div className="relative">
-              <input
+              <Input
+                id="user-password"
                 type={showPwd ? 'text' : 'password'}
                 value={form.password}
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                 required
                 minLength={8}
                 placeholder="Min. 8 characters"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
+                className="pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowPwd((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showPwd ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
               </button>
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Role</label>
-            <div className="relative">
-              <select
-                value={form.role}
-                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500 appearance-none"
-              >
-                <option value="ADMIN">Admin — full access</option>
-                <option value="ANALYST">Analyst — read + write scans</option>
-                <option value="VIEWER">Viewer — read only</option>
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Role</Label>
+            <Select value={form.role} onValueChange={(role) => setForm((f) => ({ ...f, role }))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ADMIN">Admin — full access</SelectItem>
+                <SelectItem value="ANALYST">Analyst — read + write scans</SelectItem>
+                <SelectItem value="VIEWER">Viewer — read only</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex gap-2 pt-2">
-            <button
-              type="submit"
-              disabled={createMut.isPending}
-              className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {createMut.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create user
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-slate-400 hover:text-white border border-slate-700 hover:border-slate-600 rounded-lg transition-colors"
-            >
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-          </div>
+            </Button>
+            <Button type="submit" loading={createMut.isPending}>
+              Create user
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ── Reset Password Modal ──────────────────────────────────────────────────────
 
-function ResetPasswordModal({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
+function ResetPasswordDialog({ user, onClose }: { user: ManagedUser | null; onClose: () => void }) {
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
 
   const mut = useMutation({
-    mutationFn: () => usersApi.resetPassword(user.id, password),
+    mutationFn: () => usersApi.resetPassword(user!.id, password),
     onSuccess: () => {
-      toast.success(`Password reset for ${user.name}`);
+      toast.success(`Password reset for ${user!.name}`);
+      setPassword('');
       onClose();
     },
     onError: (err: any) => toast.error(err.response?.data?.message ?? 'Failed to reset password'),
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-        <h2 className="text-base font-semibold text-white mb-1">Reset Password</h2>
-        <p className="text-xs text-slate-500 mb-4">Set a new password for <span className="text-slate-300">{user.name}</span></p>
-        <div className="relative mb-4">
-          <input
-            type={showPwd ? 'text' : 'password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="New password (min 8 chars)"
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPwd((v) => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-          >
-            {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => password.length >= 8 && mut.mutate()}
-            disabled={mut.isPending || password.length < 8}
-            className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            {mut.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-            Reset password
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-slate-400 hover:text-white border border-slate-700 hover:border-slate-600 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
+    <Dialog open={!!user} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-sm">
+        {user && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Reset Password</DialogTitle>
+              <DialogDescription>
+                Set a new password for <span className="text-foreground">{user.name}</span>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="relative">
+              <Input
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="New password (min 8 chars)"
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showPwd ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
+              </button>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button loading={mut.isPending} disabled={password.length < 8} onClick={() => mut.mutate()}>
+                Reset password
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -326,10 +284,10 @@ function UserRowActions({
 }: {
   user: ManagedUser;
   currentUserId: string;
-  onResetPassword: (u: ManagedUser) => void;
+  onResetPassword: (_u: ManagedUser) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const qc = useQueryClient();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const isSelf = user.id === currentUserId;
 
   const roleMut = useMutation({
@@ -337,7 +295,6 @@ function UserRowActions({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users'] });
       toast.success('Role updated');
-      setOpen(false);
     },
     onError: (err: any) => toast.error(err.response?.data?.message ?? 'Failed to update role'),
   });
@@ -347,7 +304,6 @@ function UserRowActions({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users'] });
       toast.success(user.isActive ? 'User disabled' : 'User enabled');
-      setOpen(false);
     },
     onError: (err: any) => toast.error(err.response?.data?.message ?? 'Failed to update status'),
   });
@@ -357,81 +313,82 @@ function UserRowActions({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users'] });
       toast.success('User deleted');
-      setOpen(false);
+      setConfirmDelete(false);
     },
     onError: (err: any) => toast.error(err.response?.data?.message ?? 'Failed to delete user'),
   });
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="p-1.5 text-slate-500 hover:text-slate-300 rounded-lg hover:bg-slate-800 transition-colors"
-      >
-        <MoreHorizontal className="w-4 h-4" />
-      </button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-8 z-20 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
-            {!isSelf && (
-              <>
-                {/* Role change submenu */}
-                <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-                  Change role
-                </div>
-                {(['ADMIN', 'ANALYST', 'VIEWER'] as const).filter((r) => r !== user.role).map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => roleMut.mutate(r)}
-                    disabled={roleMut.isPending}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
-                  >
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="User actions">
+            <IconDotsVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          {!isSelf && (
+            <>
+              <DropdownMenuLabel>Change role</DropdownMenuLabel>
+              {(['ADMIN', 'ANALYST', 'VIEWER'] as const)
+                .filter((r) => r !== user.role)
+                .map((r) => (
+                  <DropdownMenuItem key={r} disabled={roleMut.isPending} onClick={() => roleMut.mutate(r)}>
                     Set as {ROLE_LABELS[r]}
-                  </button>
+                  </DropdownMenuItem>
                 ))}
-                <div className="border-t border-slate-800 my-1" />
-              </>
-            )}
+              <DropdownMenuSeparator />
+            </>
+          )}
 
-            <button
-              onClick={() => { onResetPassword(user); setOpen(false); }}
-              className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center gap-2"
+          <DropdownMenuItem onClick={() => onResetPassword(user)}>
+            <IconKey className="h-3.5 w-3.5" />
+            Reset password
+          </DropdownMenuItem>
+
+          {!isSelf && (
+            <>
+              <DropdownMenuItem disabled={statusMut.isPending} onClick={() => statusMut.mutate()}>
+                {user.isActive ? (
+                  <>
+                    <IconUserX className="h-3.5 w-3.5" /> Disable user
+                  </>
+                ) : (
+                  <>
+                    <IconUserCheck className="h-3.5 w-3.5" /> Enable user
+                  </>
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" disabled={deleteMut.isPending} onClick={() => setConfirmDelete(true)}>
+                <IconTrash className="h-3.5 w-3.5" />
+                Delete user
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10 text-destructive dark:bg-destructive/20 dark:text-destructive"><IconTrash /></AlertDialogMedia>
+            <AlertDialogTitle>Delete “{user.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone. The user will lose all access immediately.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel variant="ghost" disabled={deleteMut.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleteMut.isPending}
+              onClick={(event) => { event.preventDefault(); deleteMut.mutate(); }}
             >
-              <Key className="w-3.5 h-3.5" />
-              Reset password
-            </button>
-
-            {!isSelf && (
-              <>
-                <button
-                  onClick={() => statusMut.mutate()}
-                  disabled={statusMut.isPending}
-                  className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center gap-2"
-                >
-                  {user.isActive
-                    ? <><UserX className="w-3.5 h-3.5" /> Disable user</>
-                    : <><UserCheck className="w-3.5 h-3.5" /> Enable user</>
-                  }
-                </button>
-                <div className="border-t border-slate-800 my-1" />
-                <button
-                  onClick={() => {
-                    if (confirm(`Delete ${user.name}? This cannot be undone.`)) deleteMut.mutate();
-                  }}
-                  disabled={deleteMut.isPending}
-                  className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors flex items-center gap-2"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete user
-                </button>
-              </>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+              {deleteMut.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -449,119 +406,96 @@ export function UsersTab({ currentUserId }: { currentUserId: string }) {
   });
 
   const filtered = users.filter(
-    (u: ManagedUser) =>
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase()),
+    (u: ManagedUser) => u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()),
   );
 
   return (
     <div className="space-y-6">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h3 className="text-sm font-semibold text-white">Users</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Manage platform users and role assignments
-            </p>
+      <Card>
+        <CardContent className="p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Users</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">Manage platform users and role assignments</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowInvite(true)}>
+                <IconMail className="h-3.5 w-3.5" />
+                Invite by email
+              </Button>
+              <Button size="sm" onClick={() => setShowCreate(true)}>
+                <IconPlus className="h-3.5 w-3.5" />
+                New user
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowInvite(true)}
-              className="flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 hover:border-emerald-500/40 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Mail className="w-3.5 h-3.5" />
-              Invite by email
-            </button>
-            <button
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/20 hover:border-violet-500/40 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              New user
-            </button>
-          </div>
-        </div>
 
-        <div className="mb-4">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or email…"
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-          />
-        </div>
+          <div className="mb-4">
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or email…" />
+          </div>
 
-        {isLoading ? (
-          <div className="py-12 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="py-12 text-center">
-            <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-slate-500 text-sm">No users found</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-800/60">
-            {filtered.map((user: ManagedUser) => (
-              <div key={user.id} className="flex items-center gap-4 py-3.5">
-                <div className="w-8 h-8 rounded-full bg-violet-600/20 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-medium text-violet-400">
-                    {user.name.charAt(0).toUpperCase()}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-white truncate">{user.name}</p>
-                    {user.id === currentUserId && (
-                      <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">you</span>
-                    )}
+          {isLoading ? (
+            <div className="space-y-2 py-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={IconUsers} title="No users found" compact />
+          ) : (
+            <div className="divide-y divide-border">
+              {filtered.map((user: ManagedUser) => (
+                <div key={user.id} className="flex items-center gap-4 py-3.5">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/20">
+                    <span className="text-xs font-medium text-primary">{user.name.charAt(0).toUpperCase()}</span>
                   </div>
-                  <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium text-foreground">{user.name}</p>
+                      {user.id === currentUserId && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">you</span>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <RoleBadge role={user.role} />
+                    <StatusBadge isActive={user.isActive} />
+                  </div>
+                  <div className="hidden flex-shrink-0 text-xs text-muted-foreground sm:block">
+                    {user.lastLogin ? `Last login ${new Date(user.lastLogin).toLocaleDateString()}` : 'Never logged in'}
+                  </div>
+                  <UserRowActions user={user} currentUserId={currentUserId} onResetPassword={setResetTarget} />
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <RoleBadge role={user.role} />
-                  <StatusBadge isActive={user.isActive} />
-                </div>
-                <div className="text-xs text-slate-600 flex-shrink-0 hidden sm:block">
-                  {user.lastLogin
-                    ? `Last login ${new Date(user.lastLogin).toLocaleDateString()}`
-                    : 'Never logged in'}
-                </div>
-                <UserRowActions
-                  user={user}
-                  currentUserId={currentUserId}
-                  onResetPassword={setResetTarget}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
-        <div className="flex gap-3">
-          <Shield className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+      <Card>
+        <CardContent className="flex gap-3 p-4">
+          <IconShield className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
           <div>
-            <p className="text-xs font-medium text-slate-300 mb-1">Role Definitions</p>
+            <p className="mb-1 text-xs font-medium text-foreground">Role Definitions</p>
             <div className="space-y-1">
-              <p className="text-xs text-slate-500">
-                <span className="text-red-400 font-medium">Admin</span> — full platform access, user management, audit logs
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-destructive">Admin</span> — full platform access, user management, audit logs
               </p>
-              <p className="text-xs text-slate-500">
-                <span className="text-violet-400 font-medium">Analyst</span> — can create projects, run scans, manage findings
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-primary">Analyst</span> — can create projects, run scans, manage findings
               </p>
-              <p className="text-xs text-slate-500">
-                <span className="text-slate-400 font-medium">Viewer</span> — read-only access to projects and reports
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Viewer</span> — read-only access to projects and reports
               </p>
             </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      {showInvite && <InviteUserModal onClose={() => setShowInvite(false)} />}
-      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} />}
-      {resetTarget && <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />}
+      <InviteUserDialog open={showInvite} onClose={() => setShowInvite(false)} />
+      <CreateUserDialog open={showCreate} onClose={() => setShowCreate(false)} />
+      <ResetPasswordDialog user={resetTarget} onClose={() => setResetTarget(null)} />
     </div>
   );
 }

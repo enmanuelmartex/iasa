@@ -1,139 +1,248 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useState } from 'react';
-import { Bug, ChevronRight, Filter } from 'lucide-react';
+import { toast } from 'sonner';
+import type { ColumnDef } from '@tanstack/react-table';
+import { IconArrowRight, IconBug } from '@tabler/icons-react';
 import { findingsApi } from '@/lib/api';
-import { SeverityBadge, StatusBadge, MethodBadge } from '@/components/ui/severity-badge';
-import { formatRelative } from '@/lib/utils';
-import type { Finding, Severity } from '@/types';
+import { SeverityBadge } from '@/components/security/severity-badge';
+import { StatusBadge } from '@/components/security/finding-status-badge';
+import { MethodBadge } from '@/components/security/method-badge';
+import { formatRelative, formatDate } from '@/lib/utils';
+import type { Finding, Severity, FindingStatus } from '@/types';
+import { PageHeader } from '@/components/layout/page-header';
+import { PageContainer } from '@/components/layout/page-container';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Separator } from '@/components/ui/separator';
+import { DataTable } from '@/components/tables/data-table';
+import { DataTableColumnHeader } from '@/components/tables/data-table-column-header';
 
 const SEVERITIES: Severity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
-const STATUSES = ['OPEN', 'CONFIRMED', 'FALSE_POSITIVE', 'RESOLVED', 'ACCEPTED_RISK'];
+const STATUSES: FindingStatus[] = ['OPEN', 'CONFIRMED', 'FALSE_POSITIVE', 'RESOLVED', 'ACCEPTED_RISK'];
 
 export default function FindingsPage() {
-  const [severity, setSeverity] = useState('');
-  const [status, setStatus] = useState('');
+  const [severity, setSeverity] = useState<string>('');
+  const [status, setStatus] = useState<string>('');
+  const [selected, setSelected] = useState<Finding | null>(null);
 
   const { data: findings, isLoading } = useQuery<Finding[]>({
     queryKey: ['findings', severity, status],
     queryFn: () => findingsApi.list({ severity: severity || undefined, status: status || undefined }),
   });
 
-  const { data: stats } = useQuery({
-    queryKey: ['findings-stats'],
-    queryFn: findingsApi.stats,
+  const columns = useMemo<ColumnDef<Finding>[]>(
+    () => [
+      {
+        accessorKey: 'severity',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Severity" />,
+        cell: ({ row }) => <SeverityBadge severity={row.original.severity} size="sm" />,
+        size: 110,
+      },
+      {
+        accessorKey: 'title',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Finding" />,
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-foreground">{row.original.title}</p>
+            <p className="truncate text-xs text-muted-foreground">{row.original.assessment?.project?.name}</p>
+          </div>
+        ),
+      },
+      {
+        id: 'endpoint',
+        accessorFn: (row) => (row.endpoint ? `${row.endpoint.method} ${row.endpoint.path}` : ''),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Endpoint" />,
+        cell: ({ row }) =>
+          row.original.endpoint ? (
+            <div className="flex items-center gap-1.5">
+              <MethodBadge method={row.original.endpoint.method} />
+              <span className="truncate font-mono text-xs text-muted-foreground">{row.original.endpoint.path}</span>
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
+      },
+      {
+        accessorKey: 'owaspCategory',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="OWASP" />,
+        cell: ({ row }) => <span className="font-mono text-xs text-muted-foreground">{row.original.owaspCategory}</span>,
+      },
+      {
+        accessorKey: 'cvssScore',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="CVSS" />,
+        cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.cvssScore ?? '—'}</span>,
+        size: 70,
+      },
+      {
+        accessorKey: 'status',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Detected" />,
+        cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatRelative(row.original.createdAt)}</span>,
+      },
+    ],
+    [],
+  );
+
+  return (
+    <PageContainer>
+      <PageHeader title="Findings" description="All vulnerability findings across your projects" />
+
+      <DataTable
+        columns={columns}
+        data={findings ?? []}
+        isLoading={isLoading}
+        getRowId={(row) => row.id}
+        onRowClick={(row) => setSelected(row)}
+        searchPlaceholder="Search findings…"
+        toolbarFilters={
+          <>
+            <Select value={severity || 'all'} onValueChange={(v) => setSeverity(v === 'all' ? '' : v)}>
+              <SelectTrigger className="h-8 w-[140px] text-xs">
+                <SelectValue placeholder="Severity" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All severities</SelectItem>
+                {SEVERITIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={status || 'all'} onValueChange={(v) => setStatus(v === 'all' ? '' : v)}>
+              <SelectTrigger className="h-8 w-[160px] text-xs">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                {STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s.replace(/_/g, ' ')}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        }
+        emptyState={
+          <EmptyState
+            icon={IconBug}
+            title="No findings"
+            description={severity || status ? 'Try adjusting your filters' : 'Run a security assessment to detect vulnerabilities'}
+            compact
+          />
+        }
+      />
+
+      <FindingDrawer finding={selected} onClose={() => setSelected(null)} />
+    </PageContainer>
+  );
+}
+
+function FindingDrawer({ finding, onClose }: { finding: Finding | null; onClose: () => void }) {
+  const qc = useQueryClient();
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: FindingStatus }) => findingsApi.updateStatus(id, status),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['findings'] });
+      toast.success('Status updated');
+    },
+    onError: () => toast.error('Failed to update status'),
   });
 
   return (
-    <div className="p-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Findings</h1>
-          <p className="text-slate-400 text-sm mt-0.5">
-            All vulnerability findings across your projects
-          </p>
-        </div>
-      </div>
+    <Sheet open={!!finding} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+        {finding && (
+          <>
+            <SheetHeader>
+              <div className="flex items-center gap-2">
+                <SeverityBadge severity={finding.severity} size="sm" />
+                <StatusBadge status={finding.status} />
+              </div>
+              <SheetTitle>{finding.title}</SheetTitle>
+              <SheetDescription>
+                {finding.assessment?.project?.name} · {formatDate(finding.createdAt)}
+              </SheetDescription>
+            </SheetHeader>
 
-      {/* Stats Row */}
-      <div className="flex items-center gap-2">
-        {SEVERITIES.map((sev) => {
-          const count = stats?.bySeverity?.find((s: any) => s.severity === sev)?._count?._all || 0;
-          return (
-            <button
-              key={sev}
-              onClick={() => setSeverity(severity === sev ? '' : sev)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-                severity === sev ? 'border-violet-500/40 bg-violet-500/10 text-violet-400' : 'border-slate-700 text-slate-400 hover:border-slate-600'
-              }`}
-            >
-              <SeverityBadge severity={sev} size="sm" />
-              <span>{count}</span>
-            </button>
-          );
-        })}
-        <div className="ml-auto flex items-center gap-2">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-violet-500"
-          >
-            <option value="">All statuses</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-          </select>
-        </div>
-      </div>
+            <div className="space-y-5 px-5 pb-6">
+              {finding.endpoint && (
+                <div className="flex items-center gap-1.5">
+                  <MethodBadge method={finding.endpoint.method} />
+                  <span className="font-mono text-xs text-muted-foreground">{finding.endpoint.path}</span>
+                </div>
+              )}
 
-      {/* Findings Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl">
-        {isLoading ? (
-          <div className="space-y-1 p-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-14 bg-slate-800 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : !findings?.length ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Bug className="w-12 h-12 text-slate-700 mb-3" />
-            <p className="text-slate-400 font-medium">No findings</p>
-            <p className="text-slate-600 text-sm mt-1">
-              {severity || status ? 'Try adjusting your filters' : 'Run a security assessment to detect vulnerabilities'}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-800/60">
-            {/* Table Header */}
-            <div className="grid grid-cols-12 gap-4 px-5 py-2.5 text-[11px] text-slate-500 uppercase tracking-wider">
-              <div className="col-span-1">Severity</div>
-              <div className="col-span-4">Title</div>
-              <div className="col-span-2">Endpoint</div>
-              <div className="col-span-2">OWASP</div>
-              <div className="col-span-1">CVSS</div>
-              <div className="col-span-1">Status</div>
-              <div className="col-span-1">When</div>
+              <div>
+                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</h4>
+                <p className="text-sm text-foreground">{finding.description}</p>
+              </div>
+
+              {finding.impact && (
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Impact</h4>
+                  <p className="text-sm text-foreground">{finding.impact}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <p className="text-muted-foreground">OWASP Category</p>
+                  <p className="font-mono text-foreground">{finding.owaspCategory}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">CVSS Score</p>
+                  <p className="text-foreground">{finding.cvssScore ?? '—'}</p>
+                </div>
+              </div>
+
+              {finding.remediation && (
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Remediation</h4>
+                  <p className="text-sm text-foreground">{finding.remediation}</p>
+                </div>
+              )}
+
+              <Separator />
+
+              <div>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Change status</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {STATUSES.map((s) => (
+                    <Button
+                      key={s}
+                      size="sm"
+                      variant={finding.status === s ? 'default' : 'outline'}
+                      disabled={statusMutation.isPending}
+                      onClick={() => statusMutation.mutate({ id: finding.id, status: s })}
+                    >
+                      {s.replace(/_/g, ' ')}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <Button asChild variant="outline" className="w-full">
+                <Link href={`/findings/${finding.id}`}>
+                  View full details
+                  <IconArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
             </div>
-
-            {findings.map((finding) => (
-              <Link
-                key={finding.id}
-                href={`/findings/${finding.id}`}
-                className="grid grid-cols-12 gap-4 px-5 py-3.5 hover:bg-slate-800/40 transition-colors group items-center"
-              >
-                <div className="col-span-1">
-                  <SeverityBadge severity={finding.severity} size="sm" />
-                </div>
-                <div className="col-span-4">
-                  <p className="text-sm font-medium text-slate-200 truncate">{finding.title}</p>
-                  <p className="text-xs text-slate-500 truncate">{finding.assessment?.project?.name}</p>
-                </div>
-                <div className="col-span-2">
-                  {finding.endpoint && (
-                    <div className="flex items-center gap-1.5">
-                      <MethodBadge method={finding.endpoint.method} />
-                      <span className="text-xs font-mono text-slate-400 truncate">{finding.endpoint.path}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="col-span-2">
-                  <span className="text-xs text-slate-400 font-mono">{finding.owaspCategory}</span>
-                </div>
-                <div className="col-span-1">
-                  <span className="text-xs text-slate-400">{finding.cvssScore ?? '—'}</span>
-                </div>
-                <div className="col-span-1">
-                  <StatusBadge status={finding.status} />
-                </div>
-                <div className="col-span-1 flex items-center justify-between">
-                  <span className="text-xs text-slate-500">{formatRelative(finding.createdAt)}</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                </div>
-              </Link>
-            ))}
-          </div>
+          </>
         )}
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

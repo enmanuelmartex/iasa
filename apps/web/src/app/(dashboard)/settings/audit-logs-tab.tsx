@@ -2,43 +2,37 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  ClipboardList,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-  CheckCircle,
-  XCircle,
-} from 'lucide-react';
+import { IconClipboardList, IconChevronLeft, IconChevronRight, IconCircleCheck, IconCircleX } from '@tabler/icons-react';
 import { usersApi } from '@/lib/api';
-import { AuditLog, AuditActionType } from '@/types';
+import type { AuditLog, AuditActionType } from '@/types';
 import { cn } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const ACTION_COLORS: Record<string, string> = {
-  CREATE:         'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  UPDATE:         'text-blue-400 bg-blue-500/10 border-blue-500/20',
-  DELETE:         'text-red-400 bg-red-500/10 border-red-500/20',
-  LOGIN:          'text-violet-400 bg-violet-500/10 border-violet-500/20',
-  LOGOUT:         'text-slate-400 bg-slate-500/10 border-slate-600/30',
-  ROLE_CHANGE:    'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  PASSWORD_RESET: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
-  SCAN_START:     'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
-  SCAN_STOP:      'text-slate-400 bg-slate-500/10 border-slate-600/30',
-  EXPORT:         'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-  IMPORT:         'text-teal-400 bg-teal-500/10 border-teal-500/20',
-  READ:           'text-slate-500 bg-slate-800 border-slate-700',
+  CREATE: 'text-success bg-success/10 border-success/20',
+  UPDATE: 'text-chart-2 bg-chart-2/10 border-chart-2/20',
+  DELETE: 'text-destructive bg-destructive/10 border-destructive/20',
+  LOGIN: 'text-primary bg-primary/10 border-primary/20',
+  LOGOUT: 'text-muted-foreground bg-muted border-border',
+  ROLE_CHANGE: 'text-severity-medium bg-severity-medium/10 border-severity-medium/20',
+  PASSWORD_RESET: 'text-severity-high bg-severity-high/10 border-severity-high/20',
+  SCAN_START: 'text-cyan bg-cyan/10 border-cyan/20',
+  SCAN_STOP: 'text-muted-foreground bg-muted border-border',
+  EXPORT: 'text-chart-3 bg-chart-3/10 border-chart-3/20',
+  IMPORT: 'text-chart-3 bg-chart-3/10 border-chart-3/20',
+  READ: 'text-muted-foreground bg-muted border-border',
 };
 
 function ActionBadge({ action }: { action: AuditActionType }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase whitespace-nowrap',
-        ACTION_COLORS[action] ?? ACTION_COLORS.READ,
-      )}
-    >
+    <Badge variant="outline" className={cn('whitespace-nowrap text-[10px] font-semibold uppercase', ACTION_COLORS[action] ?? ACTION_COLORS.READ)}>
       {action.replace('_', ' ')}
-    </span>
+    </Badge>
   );
 }
 
@@ -53,10 +47,18 @@ function formatMetadata(meta: Record<string, any> | undefined): string | null {
 
 const PAGE_SIZE = 25;
 
-const RESOURCE_OPTIONS = ['', 'user', 'auth', 'project', 'assessment', 'finding', 'report'];
-const ACTION_OPTIONS: Array<AuditActionType | ''> = [
-  '', 'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT',
-  'ROLE_CHANGE', 'PASSWORD_RESET', 'SCAN_START', 'SCAN_STOP', 'EXPORT',
+const RESOURCE_OPTIONS = ['user', 'auth', 'project', 'assessment', 'finding', 'report'];
+const ACTION_OPTIONS: AuditActionType[] = [
+  'CREATE',
+  'UPDATE',
+  'DELETE',
+  'LOGIN',
+  'LOGOUT',
+  'ROLE_CHANGE',
+  'PASSWORD_RESET',
+  'SCAN_START',
+  'SCAN_STOP',
+  'EXPORT',
 ];
 
 export function AuditLogsTab() {
@@ -80,117 +82,118 @@ export function AuditLogsTab() {
   const items: AuditLog[] = data?.items ?? [];
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  function handleFilterChange() {
-    setPage(0);
-  }
-
   return (
     <div className="space-y-6">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <div className="mb-5">
-          <h3 className="text-sm font-semibold text-white">Audit Logs</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            All system actions — logins, user changes, scans, exports
-          </p>
-        </div>
-
-        {/* Filters */}
-        <div className="flex gap-3 mb-4">
-          <select
-            value={actionFilter}
-            onChange={(e) => { setActionFilter(e.target.value); handleFilterChange(); }}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-violet-500"
-          >
-            <option value="">All actions</option>
-            {ACTION_OPTIONS.filter(Boolean).map((a) => (
-              <option key={a} value={a}>{String(a).replace('_', ' ')}</option>
-            ))}
-          </select>
-          <select
-            value={resourceFilter}
-            onChange={(e) => { setResourceFilter(e.target.value); handleFilterChange(); }}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-violet-500"
-          >
-            <option value="">All resources</option>
-            {RESOURCE_OPTIONS.filter(Boolean).map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </select>
-          <span className="ml-auto text-xs text-slate-500 self-center">
-            {total} event{total !== 1 ? 's' : ''}
-          </span>
-        </div>
-
-        {isLoading ? (
-          <div className="py-12 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
+      <Card>
+        <CardContent className="p-6">
+          <div className="mb-5">
+            <h3 className="text-sm font-semibold text-foreground">Audit Logs</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">All system actions — logins, user changes, scans, exports</p>
           </div>
-        ) : items.length === 0 ? (
-          <div className="py-12 text-center">
-            <ClipboardList className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-slate-500 text-sm">No audit events found</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-800/60">
-            {items.map((log) => {
-              const detail = formatMetadata(log.metadata);
-              return (
-                <div key={log.id} className="flex items-start gap-3 py-3">
-                  <div className="flex-shrink-0 mt-0.5">
-                    {log.success
-                      ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500/60" />
-                      : <XCircle    className="w-3.5 h-3.5 text-red-500/60" />
-                    }
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <ActionBadge action={log.action} />
-                      <span className="text-xs text-slate-400 font-mono">{log.resource}</span>
-                      {detail && (
-                        <span className="text-xs text-slate-500">· {detail}</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {log.user
-                        ? <><span className="text-slate-400">{log.user.name}</span> ({log.user.email})</>
-                        : <span className="text-slate-600">System</span>
-                      }
-                    </p>
-                  </div>
-                  <span className="text-[10px] text-slate-600 flex-shrink-0 whitespace-nowrap">
-                    {new Date(log.createdAt).toLocaleString()}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between pt-4 border-t border-slate-800 mt-2">
-            <button
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          {/* Filters */}
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Select
+              value={actionFilter || 'all'}
+              onValueChange={(v) => {
+                setActionFilter(v === 'all' ? '' : v);
+                setPage(0);
+              }}
             >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              Previous
-            </button>
-            <span className="text-xs text-slate-500">
-              Page {page + 1} of {totalPages}
+              <SelectTrigger className="h-8 w-[160px] text-xs">
+                <SelectValue placeholder="All actions" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All actions</SelectItem>
+                {ACTION_OPTIONS.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {a.replace('_', ' ')}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={resourceFilter || 'all'}
+              onValueChange={(v) => {
+                setResourceFilter(v === 'all' ? '' : v);
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="h-8 w-[160px] text-xs">
+                <SelectValue placeholder="All resources" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All resources</SelectItem>
+                {RESOURCE_OPTIONS.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="ml-auto self-center text-xs text-muted-foreground">
+              {total} event{total !== 1 ? 's' : ''}
             </span>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              Next
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
           </div>
-        )}
-      </div>
+
+          {isLoading ? (
+            <div className="space-y-2 py-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <EmptyState icon={IconClipboardList} title="No audit events found" compact />
+          ) : (
+            <div className="divide-y divide-border">
+              {items.map((log) => {
+                const detail = formatMetadata(log.metadata);
+                return (
+                  <div key={log.id} className="flex items-start gap-3 py-3">
+                    <div className="mt-0.5 flex-shrink-0">
+                      {log.success ? <IconCircleCheck className="h-3.5 w-3.5 text-success/60" /> : <IconCircleX className="h-3.5 w-3.5 text-destructive/60" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <ActionBadge action={log.action} />
+                        <span className="font-mono text-xs text-muted-foreground">{log.resource}</span>
+                        {detail && <span className="text-xs text-muted-foreground">· {detail}</span>}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {log.user ? (
+                          <>
+                            <span className="text-muted-foreground">{log.user.name}</span> ({log.user.email})
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground/70">System</span>
+                        )}
+                      </p>
+                    </div>
+                    <span className="flex-shrink-0 whitespace-nowrap text-[10px] text-muted-foreground">{new Date(log.createdAt).toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="mt-2 flex items-center justify-between border-t border-border pt-4">
+              <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+                <IconChevronLeft className="h-3.5 w-3.5" />
+                Previous
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Page {page + 1} of {totalPages}
+              </span>
+              <Button variant="ghost" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>
+                Next
+                <IconChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

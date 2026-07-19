@@ -14,7 +14,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ProjectsService } from './projects.service';
-import { CreateProjectDto, UpdateProjectDto } from './dto/create-project.dto';
+import { CreateProjectDto, SaveProjectDraftDto, UpdateProjectDto } from './dto/create-project.dto';
 
 @ApiTags('Projects')
 @ApiBearerAuth('JWT')
@@ -39,6 +39,24 @@ export class ProjectsController {
   @ApiOperation({ summary: 'Create a new project' })
   create(@CurrentUser() user: any, @Body() dto: CreateProjectDto) {
     return this.projectsService.create(user.id, dto);
+  }
+
+  @Post('drafts')
+  @ApiOperation({ summary: 'Create a meaningful project draft' })
+  createDraft(@CurrentUser() user: any, @Body() dto: SaveProjectDraftDto) {
+    return this.projectsService.createDraft(user.id, dto);
+  }
+
+  @Put(':id/draft')
+  @ApiOperation({ summary: 'Autosave a project draft' })
+  saveDraft(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: SaveProjectDraftDto) {
+    return this.projectsService.saveDraft(id, user.id, dto);
+  }
+
+  @Post(':id/finalize')
+  @ApiOperation({ summary: 'Validate and finalize a project draft' })
+  finalize(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.projectsService.finalize(id, user.id);
   }
 
   @Put(':id')

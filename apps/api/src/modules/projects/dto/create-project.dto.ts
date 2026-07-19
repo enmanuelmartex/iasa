@@ -1,4 +1,4 @@
-import { IsString, IsUrl, IsOptional, IsEnum, MaxLength, IsArray } from 'class-validator';
+import { IsString, IsUrl, IsOptional, IsEnum, MaxLength, IsArray, IsInt, Min, Max, IsNotEmpty } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export enum ProjectEnvironment {
@@ -10,6 +10,7 @@ export enum ProjectEnvironment {
 export class CreateProjectDto {
   @ApiProperty({ example: 'My REST API' })
   @IsString()
+  @IsNotEmpty({ message: 'Project name is required.' })
   @MaxLength(100)
   name: string;
 
@@ -21,6 +22,7 @@ export class CreateProjectDto {
 
   @ApiProperty({ example: 'https://api.example.com' })
   @IsString()
+  @IsUrl({ require_protocol: true }, { message: 'Enter a valid API base URL.' })
   baseUrl: string;
 
   @ApiPropertyOptional({ enum: ProjectEnvironment, default: 'DEVELOPMENT' })
@@ -33,6 +35,14 @@ export class CreateProjectDto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+}
+
+export class SaveProjectDraftDto {
+  @IsOptional() @IsString() @MaxLength(100) name?: string;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsString() @MaxLength(2048) baseUrl?: string;
+  @IsOptional() @IsEnum(ProjectEnvironment) environment?: ProjectEnvironment;
+  @IsOptional() @IsInt() @Min(1) @Max(3) setupStep?: number;
 }
 
 export class UpdateProjectDto {

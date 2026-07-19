@@ -1,95 +1,125 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import Link from 'next/link';
-import { Activity, ChevronRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import { IconActivity } from '@tabler/icons-react';
 import { assessmentsApi } from '@/lib/api';
-import { StatusBadge } from '@/components/ui/severity-badge';
-import { formatRelative, formatDuration, scoreToColor } from '@/lib/utils';
+import { StatusBadge } from '@/components/security/finding-status-badge';
+import { formatRelative, formatDuration, cn } from '@/lib/utils';
 import type { Assessment } from '@/types';
+import { PageHeader } from '@/components/layout/page-header';
+import { PageContainer } from '@/components/layout/page-container';
+import { EmptyState } from '@/components/ui/empty-state';
+import { DataTable } from '@/components/tables/data-table';
+import { DataTableColumnHeader } from '@/components/tables/data-table-column-header';
+
+function scoreClass(score: number) {
+  if (score >= 80) return 'text-success';
+  if (score >= 60) return 'text-severity-medium';
+  if (score >= 40) return 'text-severity-high';
+  return 'text-severity-critical';
+}
 
 export default function AssessmentsPage() {
+  const router = useRouter();
   const { data: assessments, isLoading } = useQuery<Assessment[]>({
     queryKey: ['assessments'],
     queryFn: () => assessmentsApi.list(),
     refetchInterval: 10000,
   });
 
-  return (
-    <div className="p-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Assessments</h1>
-        <p className="text-slate-400 text-sm mt-0.5">All security assessment runs</p>
-      </div>
+  const columns = useMemo<ColumnDef<Assessment>[]>(
+    () => [
+      {
+        id: 'project',
+        accessorFn: (row) => row.project?.name ?? '',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-foreground">{row.original.project?.name}</p>
+            <p className="truncate font-mono text-xs text-muted-foreground">{row.original.project?.baseUrl}</p>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'status',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        id: 'score',
+        accessorFn: (row) => row.summary?.securityScore ?? -1,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Score" />,
+        cell: ({ row }) =>
+          row.original.summary ? (
+            <span className={cn('text-sm font-bold', scoreClass(row.original.summary.securityScore))}>
+              {row.original.summary.securityScore}
+            </span>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          ),
+        size: 80,
+      },
+      {
+        id: 'critical',
+        accessorFn: (row) => row.summary?.criticalCount ?? -1,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Critical" />,
+        cell: ({ row }) => <span className="text-sm font-bold text-destructive">{row.original.summary?.criticalCount ?? '—'}</span>,
+        size: 80,
+      },
+      {
+        id: 'high',
+        accessorFn: (row) => row.summary?.highCount ?? -1,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="High" />,
+        cell: ({ row }) => <span className="text-sm font-bold text-severity-high">{row.original.summary?.highCount ?? '—'}</span>,
+        size: 80,
+      },
+      {
+        id: 'total',
+        accessorFn: (row) => row.summary?.totalFindings ?? -1,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Total" />,
+        cell: ({ row }) => <span className="text-sm text-foreground">{row.original.summary?.totalFindings ?? '—'}</span>,
+        size: 70,
+      },
+      {
+        id: 'duration',
+        accessorFn: (row) => row.duration ?? -1,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Duration" />,
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">{row.original.duration ? formatDuration(row.original.duration) : '—'}</span>
+        ),
+      },
+      {
+        accessorKey: 'createdAt',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Started" />,
+        cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatRelative(row.original.createdAt)}</span>,
+      },
+    ],
+    [],
+  );
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl">
-        {isLoading ? (
-          <div className="p-4 space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-16 bg-slate-800 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : !assessments?.length ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Activity className="w-12 h-12 text-slate-700 mb-3" />
-            <p className="text-slate-400 font-medium">No assessments yet</p>
-            <p className="text-slate-600 text-sm mt-1">Go to a project and run your first assessment</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-800/60">
-            <div className="grid grid-cols-12 gap-4 px-5 py-2.5 text-[11px] text-slate-500 uppercase tracking-wider">
-              <div className="col-span-3">Project</div>
-              <div className="col-span-2">Status</div>
-              <div className="col-span-1">Score</div>
-              <div className="col-span-1">Critical</div>
-              <div className="col-span-1">High</div>
-              <div className="col-span-1">Total</div>
-              <div className="col-span-1">Duration</div>
-              <div className="col-span-2">Started</div>
-            </div>
-            {assessments.map((assessment) => (
-              <Link
-                key={assessment.id}
-                href={`/assessments/${assessment.id}`}
-                className="grid grid-cols-12 gap-4 px-5 py-3.5 hover:bg-slate-800/40 transition-colors group items-center"
-              >
-                <div className="col-span-3">
-                  <p className="text-sm font-medium text-slate-200 truncate">{assessment.project?.name}</p>
-                  <p className="text-xs text-slate-500 truncate font-mono">{assessment.project?.baseUrl}</p>
-                </div>
-                <div className="col-span-2">
-                  <StatusBadge status={assessment.status} />
-                </div>
-                <div className="col-span-1">
-                  {assessment.summary ? (
-                    <span className={`text-sm font-bold ${scoreToColor(assessment.summary.securityScore)}`}>
-                      {assessment.summary.securityScore}
-                    </span>
-                  ) : (
-                    <span className="text-slate-600 text-sm">—</span>
-                  )}
-                </div>
-                <div className="col-span-1 text-sm font-bold text-red-400">
-                  {assessment.summary?.criticalCount ?? '—'}
-                </div>
-                <div className="col-span-1 text-sm font-bold text-orange-400">
-                  {assessment.summary?.highCount ?? '—'}
-                </div>
-                <div className="col-span-1 text-sm text-slate-300">
-                  {assessment.summary?.totalFindings ?? '—'}
-                </div>
-                <div className="col-span-1 text-xs text-slate-400">
-                  {assessment.duration ? formatDuration(assessment.duration) : '—'}
-                </div>
-                <div className="col-span-2 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">{formatRelative(assessment.createdAt)}</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+  return (
+    <PageContainer>
+      <PageHeader title="Assessments" description="All security assessment runs across your projects" />
+
+      <DataTable
+        columns={columns}
+        data={assessments ?? []}
+        isLoading={isLoading}
+        getRowId={(row) => row.id}
+        onRowClick={(row) => router.push(`/assessments/${row.id}`)}
+        searchPlaceholder="Search assessments…"
+        emptyState={
+          <EmptyState
+            icon={IconActivity}
+            title="No assessments yet"
+            description="Go to a project and run your first assessment."
+            compact
+          />
+        }
+      />
+    </PageContainer>
   );
 }

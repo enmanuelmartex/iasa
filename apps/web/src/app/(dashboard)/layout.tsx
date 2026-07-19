@@ -1,21 +1,32 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Sidebar } from '@/components/layout/sidebar';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { AppSidebar } from "@/components/layout/app-sidebar";
+import { SiteHeader } from "@/components/layout/site-header";
+import { CommandMenuProvider } from "@/components/layout/command-menu";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{
+    name: string;
+    email: string;
+    role: string;
+  } | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    const token = localStorage.getItem('iasa_token');
-    const userData = localStorage.getItem('iasa_user');
+    const token = localStorage.getItem("iasa_token");
+    const userData = localStorage.getItem("iasa_user");
 
     if (!token) {
-      router.push('/login');
+      router.push("/login");
       return;
     }
 
@@ -28,18 +39,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (!mounted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <Sidebar user={user} />
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
-    </div>
+    <CommandMenuProvider>
+      <SidebarProvider
+        style={
+          {
+            "--sidebar-width": "18rem",
+            "--sidebar-width-icon": "3.25rem",
+          } as React.CSSProperties
+        }
+      >
+        <AppSidebar user={user} />
+        <SidebarInset>
+          <SiteHeader />
+          <main className="flex-1 overflow-auto">{children}</main>
+        </SidebarInset>
+      </SidebarProvider>
+    </CommandMenuProvider>
   );
 }

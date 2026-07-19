@@ -1,54 +1,76 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Settings2,
-  Shield,
-  Key,
-  Bell,
-  User,
-  Info,
-  ChevronRight,
-  Copy,
-  Check,
-  Plus,
-  Trash2,
-  Eye,
-  EyeOff,
-  Terminal,
-  Globe,
-  Lock,
-  Cpu,
-  GitBranch,
-  Zap,
-  Sparkles,
-  Users,
-  ClipboardList,
-} from 'lucide-react';
+  IconSettings2,
+  IconShieldLock,
+  IconKey,
+  IconBell,
+  IconInfoCircle,
+  IconChevronRight,
+  IconCopy,
+  IconCheck,
+  IconPlus,
+  IconTrash,
+  IconEye,
+  IconEyeOff,
+  IconTerminal2,
+  IconWorld,
+  IconLock,
+  IconCpu,
+  IconGitBranch,
+  IconBolt,
+  IconSparkles,
+  IconUsers,
+  IconHistory,
+  IconShield,
+} from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 import { authApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { AiConfigTab } from './ai-config-tab';
 import { UsersTab } from './users-tab';
 import { AuditLogsTab } from './audit-logs-tab';
+import { PageContainer } from '@/components/layout/page-container';
+import { PageHeader } from '@/components/layout/page-header';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DeleteConfirmationDialog } from '@/components/shared/delete-confirmation-dialog';
 
 type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'system' | 'about' | 'users' | 'audit-logs';
 
 const ALL_TABS: { id: TabId; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
-  { id: 'general',       label: 'General',          icon: Settings2 },
-  { id: 'security',      label: 'Security',          icon: Shield },
-  { id: 'tokens',        label: 'API Tokens',        icon: Key },
-  { id: 'notifications', label: 'Notifications',     icon: Bell },
-  { id: 'ai',            label: 'AI Configuration',  icon: Sparkles },
-  { id: 'system',        label: 'System',            icon: Cpu },
-  { id: 'about',         label: 'About',             icon: Info },
-  { id: 'users',         label: 'Users',             icon: Users,         adminOnly: true },
-  { id: 'audit-logs',   label: 'Audit Logs',        icon: ClipboardList, adminOnly: true },
+  { id: 'general', label: 'General', icon: IconSettings2 },
+  { id: 'security', label: 'Security', icon: IconShieldLock },
+  { id: 'tokens', label: 'API Tokens', icon: IconKey },
+  { id: 'notifications', label: 'Notifications', icon: IconBell },
+  { id: 'ai', label: 'AI Configuration', icon: IconSparkles },
+  { id: 'system', label: 'System', icon: IconCpu },
+  { id: 'about', label: 'About', icon: IconInfoCircle },
+  { id: 'users', label: 'Users', icon: IconUsers, adminOnly: true },
+  { id: 'audit-logs', label: 'Audit Logs', icon: IconHistory, adminOnly: true },
 ];
 
+const VALID_TAB_IDS = ALL_TABS.map((t) => t.id);
+
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('general');
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const tabParam = searchParams.get('tab');
+  const activeTab: TabId = (VALID_TAB_IDS as string[]).includes(tabParam ?? '') ? (tabParam as TabId) : 'general';
+
+  function setActiveTab(id: TabId) {
+    router.replace(`${pathname}?tab=${id}`, { scroll: false });
+  }
 
   const { data: me } = useQuery({
     queryKey: ['me'],
@@ -60,77 +82,72 @@ export default function SettingsPage() {
   const tabs = ALL_TABS.filter((t) => !t.adminOnly || isAdmin);
 
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Settings</h1>
-        <p className="text-slate-500 text-sm mt-0.5">
-          Manage your account, security preferences and integrations
-        </p>
-      </div>
+    <PageContainer>
+      <PageHeader title="Settings" description="Manage your account, security preferences and integrations" />
 
-      <div className="flex gap-8">
+      <div className="flex flex-col gap-8 lg:flex-row">
         {/* Sidebar */}
-        <aside className="w-48 flex-shrink-0">
+        <aside className="w-full flex-shrink-0 lg:w-48">
           <nav className="space-y-0.5">
-            {/* Non-admin tabs */}
-            {tabs.filter((t) => !t.adminOnly).map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left',
-                  activeTab === tab.id
-                    ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent',
-                )}
-              >
-                <tab.icon className={cn('w-4 h-4 flex-shrink-0', activeTab === tab.id ? 'text-violet-400' : 'text-slate-500')} />
-                {tab.label}
-              </button>
-            ))}
+            {tabs
+              .filter((t) => !t.adminOnly)
+              .map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+                    activeTab === tab.id
+                      ? 'border-primary/20 bg-primary/10 text-primary'
+                      : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                >
+                  <tab.icon className={cn('h-4 w-4 flex-shrink-0', activeTab === tab.id ? 'text-primary' : 'text-muted-foreground')} />
+                  {tab.label}
+                </button>
+              ))}
 
-            {/* Admin section */}
             {isAdmin && (
               <>
-                <div className="pt-4 pb-1.5 px-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-600">
-                    Administration
-                  </p>
+                <div className="px-2 pb-1.5 pt-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Administration</p>
                 </div>
-                {tabs.filter((t) => t.adminOnly).map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left',
-                      activeTab === tab.id
-                        ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent',
-                    )}
-                  >
-                    <tab.icon className={cn('w-4 h-4 flex-shrink-0', activeTab === tab.id ? 'text-violet-400' : 'text-slate-500')} />
-                    {tab.label}
-                  </button>
-                ))}
+                {tabs
+                  .filter((t) => t.adminOnly)
+                  .map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={cn(
+                        'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+                        activeTab === tab.id
+                          ? 'border-primary/20 bg-primary/10 text-primary'
+                          : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+                      )}
+                    >
+                      <tab.icon className={cn('h-4 w-4 flex-shrink-0', activeTab === tab.id ? 'text-primary' : 'text-muted-foreground')} />
+                      {tab.label}
+                    </button>
+                  ))}
               </>
             )}
           </nav>
         </aside>
 
         {/* Content */}
-        <div className="flex-1 min-w-0">
-          {activeTab === 'general'       && <GeneralTab user={me} />}
-          {activeTab === 'security'      && <SecurityTab />}
-          {activeTab === 'tokens'        && <TokensTab />}
+        <div className="min-w-0 flex-1">
+          {activeTab === 'general' && <GeneralTab user={me} />}
+          {activeTab === 'security' && <SecurityTab />}
+          {activeTab === 'tokens' && <TokensTab />}
           {activeTab === 'notifications' && <NotificationsTab />}
-          {activeTab === 'ai'            && <AiConfigTab />}
-          {activeTab === 'system'        && <SystemTab />}
-          {activeTab === 'about'         && <AboutTab />}
-          {activeTab === 'users'         && isAdmin && <UsersTab currentUserId={me?.id ?? ''} />}
-          {activeTab === 'audit-logs'    && isAdmin && <AuditLogsTab />}
+          {activeTab === 'ai' && <AiConfigTab />}
+          {activeTab === 'system' && <SystemTab />}
+          {activeTab === 'about' && <AboutTab />}
+          {activeTab === 'users' && isAdmin && <UsersTab currentUserId={me?.id ?? ''} />}
+          {activeTab === 'audit-logs' && isAdmin && <AuditLogsTab />}
         </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }
 
@@ -144,87 +161,85 @@ function GeneralTab({ user }: { user: any }) {
       <Section title="Profile" description="Your public information">
         <div className="space-y-4">
           <div className="flex items-center gap-5">
-            <div className="w-14 h-14 rounded-full bg-violet-600/20 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
-              <span className="text-xl font-bold text-violet-400">
-                {user?.name?.charAt(0)?.toUpperCase() || 'A'}
-              </span>
+            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/20">
+              <span className="text-xl font-bold text-primary">{user?.name?.charAt(0)?.toUpperCase() || 'A'}</span>
             </div>
             <div>
-              <p className="text-sm font-medium text-white">{user?.name}</p>
-              <p className="text-xs text-slate-500">{user?.email}</p>
-              <span className="inline-flex items-center mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 uppercase">
+              <p className="text-sm font-medium text-foreground">{user?.name}</p>
+              <p className="text-xs text-muted-foreground">{user?.email}</p>
+              <Badge variant="outline" className="mt-1 border-primary/20 bg-primary/10 text-[10px] uppercase text-primary">
                 {user?.role}
-              </span>
+              </Badge>
             </div>
           </div>
 
           <Field label="Display Name">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500"
-              placeholder="Your name"
-            />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
           </Field>
 
           <Field label="Email Address">
-            <input
-              value={user?.email ?? ''}
-              readOnly
-              className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-400 cursor-not-allowed"
-            />
-            <p className="text-xs text-slate-600 mt-1.5">Email changes require support contact</p>
+            <Input value={user?.email ?? ''} readOnly className="cursor-not-allowed text-muted-foreground" />
+            <p className="mt-1.5 text-xs text-muted-foreground">Email changes require support contact</p>
           </Field>
 
-          <button
-            onClick={() => toast.success('Profile updated')}
-            className="bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Save changes
-          </button>
+          <Button onClick={() => toast.success('Profile updated')}>Save changes</Button>
         </div>
       </Section>
 
       <Section title="Preferences" description="Interface and behavior">
         <div className="space-y-4">
-          <div className="flex items-center justify-between py-3 border-b border-slate-800">
+          <div className="flex items-center justify-between border-b border-border py-3">
             <div>
-              <p className="text-sm text-white">Theme</p>
-              <p className="text-xs text-slate-500 mt-0.5">Application color scheme</p>
+              <p className="text-sm text-foreground">Theme</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Application color scheme</p>
             </div>
-            <select className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-violet-500">
-              <option>Dark (Default)</option>
-              <option>Light</option>
-              <option>System</option>
-            </select>
+            <Select defaultValue="dark">
+              <SelectTrigger className="h-8 w-[160px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dark">Dark (Default)</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="system">System</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
-          <div className="flex items-center justify-between py-3 border-b border-slate-800">
+          <div className="flex items-center justify-between border-b border-border py-3">
             <div>
-              <p className="text-sm text-white">Timezone</p>
-              <p className="text-xs text-slate-500 mt-0.5">Used for timestamps and scheduling</p>
+              <p className="text-sm text-foreground">Timezone</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Used for timestamps and scheduling</p>
             </div>
-            <select className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-violet-500">
-              <option>UTC</option>
-              <option>America/New_York</option>
-              <option>America/Los_Angeles</option>
-              <option>Europe/London</option>
-              <option>Europe/Berlin</option>
-              <option>Asia/Tokyo</option>
-            </select>
+            <Select defaultValue="UTC">
+              <SelectTrigger className="h-8 w-[160px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {['UTC', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'Europe/Berlin', 'Asia/Tokyo'].map((tz) => (
+                  <SelectItem key={tz} value={tz}>
+                    {tz}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between py-3">
             <div>
-              <p className="text-sm text-white">Language</p>
-              <p className="text-xs text-slate-500 mt-0.5">Interface language</p>
+              <p className="text-sm text-foreground">Language</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Interface language</p>
             </div>
-            <select className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-violet-500">
-              <option>English (Default)</option>
-              <option>Spanish</option>
-              <option>Portuguese</option>
-              <option>French</option>
-            </select>
+            <Select defaultValue="en">
+              <SelectTrigger className="h-8 w-[160px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="en">English (Default)</SelectItem>
+                <SelectItem value="es">Spanish</SelectItem>
+                <SelectItem value="pt">Portuguese</SelectItem>
+                <SelectItem value="fr">French</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </Section>
@@ -263,97 +278,80 @@ function SecurityTab() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <Field label="Current password">
             <div className="relative">
-              <input
+              <Input
                 type={showCurrent ? 'text' : 'password'}
                 value={current}
                 onChange={(e) => setCurrent(e.target.value)}
                 required
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
                 placeholder="••••••••"
+                className="pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowCurrent(!showCurrent)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                {showCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showCurrent ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
               </button>
             </div>
           </Field>
           <Field label="New password">
             <div className="relative">
-              <input
+              <Input
                 type={showNew ? 'text' : 'password'}
                 value={newPwd}
                 onChange={(e) => setNewPwd(e.target.value)}
                 required
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
                 placeholder="••••••••"
+                className="pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowNew(!showNew)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showNew ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
               </button>
             </div>
           </Field>
           <Field label="Confirm new password">
-            <input
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
-              placeholder="••••••••"
-            />
+            <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required placeholder="••••••••" />
           </Field>
-          <button
-            type="submit"
-            className="bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Update password
-          </button>
+          <Button type="submit">Update password</Button>
         </form>
       </Section>
 
       <Section title="Sessions" description="Active sessions and access history">
         <div className="space-y-3">
-          <div className="flex items-center gap-4 py-3 border-b border-slate-800">
-            <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
-              <Globe className="w-4 h-4 text-slate-400" />
+          <div className="flex items-center gap-4 border-b border-border py-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
+              <IconWorld className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <p className="text-sm text-white">Current session</p>
-                <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                <p className="text-sm text-foreground">Current session</p>
+                <Badge variant="success" className="text-[10px]">
                   Active
-                </span>
+                </Badge>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">Web Browser · localhost</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Web Browser · localhost</p>
             </div>
-            <span className="text-xs text-slate-500">Now</span>
+            <span className="text-xs text-muted-foreground">Now</span>
           </div>
-          <p className="text-xs text-slate-600">Only the current session is shown. Multi-device session management coming in v0.2.</p>
+          <p className="text-xs text-muted-foreground">Only the current session is shown. Multi-device session management coming in v0.2.</p>
         </div>
       </Section>
 
       <Section title="Danger Zone" description="Irreversible account actions">
-        <div className="border border-red-500/20 bg-red-500/5 rounded-xl p-4">
-          <div className="flex items-center justify-between">
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4">
+          <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
             <div>
-              <p className="text-sm font-medium text-white">Delete Account</p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Permanently remove your account and all associated data.
-              </p>
+              <p className="text-sm font-medium text-foreground">Delete Account</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Permanently remove your account and all associated data.</p>
             </div>
-            <button
-              onClick={() => toast.error('Account deletion requires admin approval')}
-              className="text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 text-xs font-medium px-3 py-2 rounded-lg transition-colors flex-shrink-0"
-            >
+            <Button variant="destructive" size="sm" onClick={() => toast.error('Account deletion requires admin approval')}>
               Delete Account
-            </button>
+            </Button>
           </div>
         </div>
       </Section>
@@ -364,8 +362,22 @@ function SecurityTab() {
 // ─── TOKENS ───────────────────────────────────────────────────────────────────
 
 const MOCK_TOKENS = [
-  { id: '1', name: 'CI/CD Pipeline', preview: 'iasa_••••••••••••efg3', lastUsedAt: new Date(Date.now() - 3_600_000).toISOString(), createdAt: new Date(Date.now() - 7 * 86_400_000).toISOString(), scopes: ['read', 'write'] },
-  { id: '2', name: 'Monitoring Script', preview: 'iasa_••••••••••••mno7', lastUsedAt: new Date(Date.now() - 86_400_000).toISOString(), createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(), scopes: ['read'] },
+  {
+    id: '1',
+    name: 'CI/CD Pipeline',
+    preview: 'iasa_••••••••••••efg3',
+    lastUsedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    createdAt: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+    scopes: ['read', 'write'],
+  },
+  {
+    id: '2',
+    name: 'Monitoring Script',
+    preview: 'iasa_••••••••••••mno7',
+    lastUsedAt: new Date(Date.now() - 86_400_000).toISOString(),
+    createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+    scopes: ['read'],
+  },
 ];
 
 function TokensTab() {
@@ -408,87 +420,76 @@ function TokensTab() {
         title="API Tokens"
         description="Manage tokens for programmatic access and integrations"
         action={
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/20 hover:border-violet-500/40 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
+          <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
+            <IconPlus className="h-3.5 w-3.5" />
             New Token
-          </button>
+          </Button>
         }
       >
         {showCreate && (
-          <div className="mb-4 p-4 bg-slate-800/60 border border-slate-700 rounded-xl">
-            <p className="text-sm font-medium text-white mb-3">Create new token</p>
-            <div className="flex gap-2">
-              <input
+          <div className="mb-4 rounded-xl border border-border bg-muted/60 p-4">
+            <p className="mb-3 text-sm font-medium text-foreground">Create new token</p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="Token name (e.g. CI/CD Pipeline)"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
                 onKeyDown={(e) => e.key === 'Enter' && createToken()}
                 autoFocus
+                className="flex-1"
               />
-              <button
-                onClick={createToken}
-                className="bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-              >
-                Create
-              </button>
-              <button
-                onClick={() => setShowCreate(false)}
-                className="text-slate-400 hover:text-white border border-slate-700 px-4 py-2 rounded-lg text-sm transition-colors"
-              >
-                Cancel
-              </button>
+              <div className="flex gap-2">
+                <Button onClick={createToken}>Create</Button>
+                <Button variant="outline" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </Button>
+              </div>
             </div>
           </div>
         )}
 
         {tokens.length === 0 ? (
           <div className="py-8 text-center">
-            <Key className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-slate-400 text-sm">No API tokens yet</p>
+            <IconKey className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">No API tokens yet</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-800/60">
+          <div className="divide-y divide-border">
             {tokens.map((token) => (
               <div key={token.id} className="flex items-center gap-4 py-3.5">
-                <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0">
-                  <Key className="w-4 h-4 text-slate-400" />
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
+                  <IconKey className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white">{token.name}</p>
-                  <div className="flex items-center gap-3 mt-0.5">
-                    <span className="text-xs font-mono text-slate-500">{token.preview}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">{token.name}</p>
+                  <div className="mt-0.5 flex items-center gap-3">
+                    <span className="font-mono text-xs text-muted-foreground">{token.preview}</span>
                     {token.scopes.map((s) => (
-                      <span key={s} className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">{s}</span>
+                      <span key={s} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {s}
+                      </span>
                     ))}
                   </div>
                 </div>
-                <div className="text-xs text-slate-500 text-right flex-shrink-0">
+                <div className="flex-shrink-0 text-right text-xs text-muted-foreground">
                   <p>{token.lastUsedAt ? `Used ${new Date(token.lastUsedAt).toLocaleDateString()}` : 'Never used'}</p>
-                  <p className="text-slate-600 mt-0.5">Created {new Date(token.createdAt).toLocaleDateString()}</p>
+                  <p className="mt-0.5 text-muted-foreground/70">Created {new Date(token.createdAt).toLocaleDateString()}</p>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex flex-shrink-0 items-center gap-1.5">
                   <button
                     onClick={() => copyToken(token.preview)}
-                    className="text-slate-500 hover:text-slate-300 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     title="Copy token"
                   >
-                    {copied === token.preview ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
+                    {copied === token.preview ? <IconCheck className="h-3.5 w-3.5 text-success" /> : <IconCopy className="h-3.5 w-3.5" />}
                   </button>
-                  <button
-                    onClick={() => deleteToken(token.id)}
-                    className="text-slate-600 hover:text-red-400 p-1.5 rounded-lg hover:bg-red-500/5 transition-colors"
-                    title="Revoke token"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <DeleteConfirmationDialog
+                    title={`Revoke “${token.name}”?`}
+                    description="This API token will stop working immediately. This action cannot be undone."
+                    confirmLabel="Revoke"
+                    onConfirm={() => deleteToken(token.id)}
+                    trigger={<Button type="button" variant="ghost" size="icon" className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={`Revoke ${token.name}`} title="Revoke token"><IconTrash /></Button>}
+                  />
                 </div>
               </div>
             ))}
@@ -496,18 +497,18 @@ function TokensTab() {
         )}
       </Section>
 
-      <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
-        <div className="flex gap-3">
-          <Lock className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+      <Card>
+        <CardContent className="flex gap-3 p-4">
+          <IconLock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
           <div>
-            <p className="text-xs font-medium text-slate-300 mb-1">Token Security</p>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              API tokens grant programmatic access to IASA. Store them securely in environment variables
-              — never commit to version control. Tokens can be revoked at any time.
+            <p className="mb-1 text-xs font-medium text-foreground">Token Security</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              API tokens grant programmatic access to IASA. Store them securely in environment variables — never commit to version control.
+              Tokens can be revoked at any time.
             </p>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -539,14 +540,14 @@ function NotificationsTab() {
   return (
     <div className="space-y-6">
       <Section title="In-App Notifications" description="What you see inside IASA">
-        <div className="divide-y divide-slate-800/60">
+        <div className="divide-y divide-border">
           {items.map(({ key, label, desc }) => (
             <div key={key} className="flex items-center justify-between py-3.5">
               <div>
-                <p className="text-sm text-white">{label}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+                <p className="text-sm text-foreground">{label}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
               </div>
-              <Toggle enabled={prefs[key]} onChange={() => toggle(key)} />
+              <Switch checked={prefs[key]} onCheckedChange={() => toggle(key)} />
             </div>
           ))}
         </div>
@@ -554,9 +555,9 @@ function NotificationsTab() {
 
       <Section title="Email Notifications" description="Coming in v0.2">
         <div className="py-6 text-center">
-          <Bell className="w-8 h-8 text-slate-700 mx-auto mb-2" />
-          <p className="text-slate-500 text-sm">Email notifications are not configured yet</p>
-          <p className="text-slate-600 text-xs mt-1">Configure SMTP settings in the system panel to enable this feature</p>
+          <IconBell className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">Email notifications are not configured yet</p>
+          <p className="mt-1 text-xs text-muted-foreground/70">Configure SMTP settings in the system panel to enable this feature</p>
         </div>
       </Section>
     </div>
@@ -578,9 +579,9 @@ function SystemTab() {
             { label: 'Frontend', value: 'Next.js 15 + React 19' },
             { label: 'Scanner Plugins', value: '11 OWASP Plugins Active' },
           ].map(({ label, value }) => (
-            <div key={label} className="flex items-center justify-between py-3 border-b border-slate-800 last:border-0">
-              <span className="text-sm text-slate-400">{label}</span>
-              <span className="text-sm text-white font-medium">{value}</span>
+            <div key={label} className="flex items-center justify-between border-b border-border py-3 last:border-0">
+              <span className="text-sm text-muted-foreground">{label}</span>
+              <span className="text-sm font-medium text-foreground">{value}</span>
             </div>
           ))}
         </div>
@@ -598,10 +599,10 @@ function SystemTab() {
             { id: 'API8:2023', name: 'Security Misconfiguration', active: true },
           ].map(({ id, name, active }) => (
             <div key={id} className="flex items-center gap-3 py-2">
-              <div className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', active ? 'bg-emerald-400' : 'bg-slate-600')} />
-              <span className="font-mono text-[10px] text-slate-500 w-20 flex-shrink-0">{id.split(':')[0]}</span>
-              <span className="text-sm text-slate-300 flex-1">{name}</span>
-              <span className={cn('text-[10px] font-semibold uppercase', active ? 'text-emerald-400' : 'text-slate-600')}>
+              <div className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', active ? 'bg-success' : 'bg-muted-foreground/40')} />
+              <span className="w-20 flex-shrink-0 font-mono text-[10px] text-muted-foreground">{id.split(':')[0]}</span>
+              <span className="flex-1 text-sm text-foreground">{name}</span>
+              <span className={cn('text-[10px] font-semibold uppercase', active ? 'text-success' : 'text-muted-foreground')}>
                 {active ? 'Active' : 'Disabled'}
               </span>
             </div>
@@ -617,59 +618,58 @@ function SystemTab() {
 function AboutTab() {
   return (
     <div className="space-y-6">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-violet-600 flex items-center justify-center mx-auto mb-4">
-          <Shield className="w-7 h-7 text-white" />
-        </div>
-        <h2 className="text-xl font-bold text-white mb-1">IASA</h2>
-        <p className="text-slate-400 text-sm">Intelligent API Security Assessment</p>
-        <div className="flex items-center justify-center gap-2 mt-3">
-          <span className="text-xs text-slate-600 font-mono">v0.1.0</span>
-          <span className="w-1 h-1 rounded-full bg-slate-700" />
-          <span className="text-xs text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-full border border-violet-500/20">
-            Open Source MVP
-          </span>
-        </div>
-      </div>
+      <Card>
+        <CardContent className="p-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary">
+            <IconShield className="h-7 w-7 text-primary-foreground" />
+          </div>
+          <h2 className="mb-1 text-xl font-bold text-foreground">IASA</h2>
+          <p className="text-sm text-muted-foreground">Intelligent API Security Assessment</p>
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <span className="font-mono text-xs text-muted-foreground">v0.1.0</span>
+            <span className="h-1 w-1 rounded-full bg-border" />
+            <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
+              Open Source MVP
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
 
       <Section title="About This Project" description="Mission and objectives">
-        <div className="prose prose-sm prose-invert max-w-none">
-          <p className="text-slate-400 text-sm leading-relaxed">
-            IASA is an open source platform for automated security evaluation of RESTful APIs,
-            aligned with the <span className="text-violet-400 font-medium">OWASP API Security Top 10</span>.
-            It detects vulnerabilities, generates professional reports, and allows managing
-            multiple projects and users across organizations.
-          </p>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          IASA is an open source platform for automated security evaluation of RESTful APIs, aligned with the{' '}
+          <span className="font-medium text-primary">OWASP API Security Top 10</span>. It detects vulnerabilities, generates professional reports, and
+          allows managing multiple projects and users across organizations.
+        </p>
 
-          <div className="grid grid-cols-2 gap-3 mt-4">
-            {[
-              { icon: Zap, label: '11 OWASP Plugins', desc: 'Full API Top 10 2023 coverage' },
-              { icon: GitBranch, label: 'Open Source', desc: 'MIT License — free forever' },
-              { icon: Terminal, label: 'API-First', desc: 'REST API with Swagger docs' },
-              { icon: Shield, label: 'OWASP Aligned', desc: 'API Security Top 10 2023' },
-            ].map(({ icon: Icon, label, desc }) => (
-              <div key={label} className="bg-slate-800/50 border border-slate-800 rounded-xl p-3.5">
-                <Icon className="w-4 h-4 text-violet-400 mb-2" />
-                <p className="text-sm font-medium text-white">{label}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
-              </div>
-            ))}
-          </div>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {(
+            [
+              { icon: IconBolt, label: '11 OWASP Plugins', desc: 'Full API Top 10 2023 coverage' },
+              { icon: IconGitBranch, label: 'Open Source', desc: 'MIT License — free forever' },
+              { icon: IconTerminal2, label: 'API-First', desc: 'REST API with Swagger docs' },
+              { icon: IconShield, label: 'OWASP Aligned', desc: 'API Security Top 10 2023' },
+            ] as const
+          ).map(({ icon: Icon, label, desc }) => (
+            <div key={label} className="rounded-xl border border-border bg-muted/40 p-3.5">
+              <Icon className="mb-2 h-4 w-4 text-primary" />
+              <p className="text-sm font-medium text-foreground">{label}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
+            </div>
+          ))}
         </div>
       </Section>
 
       <Section title="Stack" description="Technologies powering IASA">
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            'NestJS 10', 'Next.js 15', 'React 19', 'PostgreSQL 16',
-            'Redis 7', 'BullMQ 5', 'Prisma ORM', 'TypeScript 5',
-            'Bun Runtime', 'TanStack Query', 'Tailwind CSS', 'Recharts',
-          ].map((tech) => (
-            <div key={tech} className="flex items-center gap-2 py-1.5 text-sm text-slate-400">
-              <ChevronRight className="w-3 h-3 text-slate-600" />
-              {tech}
-            </div>
-          ))}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {['NestJS 10', 'Next.js 15', 'React 19', 'PostgreSQL 16', 'Redis 7', 'BullMQ 5', 'Prisma ORM', 'TypeScript 5', 'Bun Runtime', 'TanStack Query', 'Tailwind CSS', 'Recharts'].map(
+            (tech) => (
+              <div key={tech} className="flex items-center gap-2 py-1.5 text-sm text-muted-foreground">
+                <IconChevronRight className="h-3 w-3 text-muted-foreground/60" />
+                {tech}
+              </div>
+            ),
+          )}
         </div>
       </Section>
     </div>
@@ -690,51 +690,26 @@ function Section({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <h3 className="text-sm font-semibold text-white">{title}</h3>
-          {description && (
-            <p className="text-xs text-slate-500 mt-0.5">{description}</p>
-          )}
+    <Card>
+      <CardContent className="p-6">
+        <div className="mb-5 flex items-start justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+            {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
+          </div>
+          {action}
         </div>
-        {action}
-      </div>
-      {children}
-    </div>
+        {children}
+      </CardContent>
+    </Card>
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-400 mb-1.5">{label}</label>
+      <Label className="mb-1.5 block text-xs font-medium text-muted-foreground">{label}</Label>
       {children}
     </div>
-  );
-}
-
-function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void }) {
-  return (
-    <button
-      onClick={onChange}
-      className={cn(
-        'relative w-9 h-5 rounded-full transition-colors flex-shrink-0',
-        enabled ? 'bg-violet-600' : 'bg-slate-700',
-      )}
-    >
-      <span
-        className={cn(
-          'absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform',
-          enabled ? 'translate-x-4' : 'translate-x-0',
-        )}
-      />
-    </button>
   );
 }

@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Shield, Loader2 } from 'lucide-react';
+import { IconShield, IconLoader2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { authClient, AUTH_BASE_URL } from '@/lib/auth-client';
 import { authApi } from '@/lib/api';
 
 // OAuth callback page — landed here after Google OAuth completes.
 // Better Auth sets a session cookie; we read it with getSession() then exchange for JWT.
-export default function AuthCallbackPage() {
+function AuthCallbackContent() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const ran          = useRef(false);
@@ -64,15 +64,29 @@ export default function AuthCallbackPage() {
   }, [router, searchParams]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background" aria-busy="true">
       <div className="flex items-center gap-2 mb-6">
-        <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center">
-          <Shield className="w-4 h-4 text-white" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+          <IconShield className="h-4 w-4 text-primary-foreground" />
         </div>
-        <span className="text-lg font-bold text-white">IASA</span>
+        <span className="text-lg font-bold text-foreground">IASA</span>
       </div>
-      <Loader2 className="w-6 h-6 text-violet-400 animate-spin mb-3" />
-      <p className="text-slate-400 text-sm">Completing sign-in…</p>
+      <IconLoader2 className="mb-3 h-6 w-6 animate-spin text-primary" />
+      <p className="text-sm text-muted-foreground">Completing sign-in…</p>
     </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-dvh items-center justify-center bg-background" aria-busy="true">
+          <IconLoader2 className="h-6 w-6 animate-spin text-primary" aria-label="Completing sign in" />
+        </main>
+      }
+    >
+      <AuthCallbackContent />
+    </Suspense>
   );
 }

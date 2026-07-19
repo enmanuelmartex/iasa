@@ -10,6 +10,8 @@ import { Queue } from 'bullmq';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Observable, Subject } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PluginRegistryService } from '../plugins/plugin-registry.service';
+import { RunAssessmentDto } from './dto/run-assessment.dto';
 
 @Injectable()
 export class AssessmentsService {
@@ -20,6 +22,7 @@ export class AssessmentsService {
     private prisma: PrismaService,
     @InjectQueue('scanner') private scannerQueue: Queue,
     private eventEmitter: EventEmitter2,
+    private pluginRegistry: PluginRegistryService,
   ) {
     this.eventEmitter.on('scanner.progress', (data) => {
       this.emitProgress(data.assessmentId, data);
@@ -66,15 +69,7 @@ export class AssessmentsService {
   async createAndRun(
     projectId: string,
     userId: string,
-    config?: {
-      executionMode?: 'all' | 'profile' | 'manual';
-      scanProfileId?: string;
-      manualPlugins?: string[];
-      enableAiAnalysis?: boolean;
-      maxRequestsPerEndpoint?: number;
-      requestDelayMs?: number;
-      timeoutMs?: number;
-    },
+    config: RunAssessmentDto = {},
   ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, userId },
@@ -86,11 +81,51 @@ export class AssessmentsService {
     });
 
     if (!project) throw new ForbiddenException('Project not found or access denied');
+    if (project.status !== 'READY') {
+      throw new BadRequestException('Complete project setup before running an assessment');
+    }
     if (!project.apiSpec) {
       throw new BadRequestException('Please import an OpenAPI specification before running an assessment');
     }
     if (!project.apiSpec.endpoints.length) {
       throw new BadRequestException('No endpoints found in the API specification');
+    }
+
+    const executionMode = config.executionMode ?? 'all';
+    const enabledPlugins = await this.pluginRegistry.getEnabledForUser(userId);
+    const enabledIds = new Set(enabledPlugins.map((plugin) => plugin.manifest.id));
+    let profileId: string | null = null;
+    let requestedIds: string[];
+
+    if (executionMode === 'profile') {
+      if (!config.scanProfileId) throw new BadRequestException('Select a scan profile');
+      const profile = await this.prisma.scanProfile.findFirst({
+        where: {
+          id: config.scanProfileId,
+          OR: [{ isSystem: true }, { userId }],
+        },
+      });
+      if (!profile) throw new BadRequestException('The selected scan profile is not available');
+      if (!profile.enabledPlugins.length) throw new BadRequestException('The selected scan profile has no plugins');
+      profileId = profile.id;
+      requestedIds = profile.enabledPlugins;
+    } else if (executionMode === 'manual') {
+      requestedIds = [...new Set(config.manualPlugins ?? [])];
+      if (!requestedIds.length) throw new BadRequestException('Select at least one plugin');
+    } else {
+      requestedIds = [...enabledIds];
+    }
+
+    const unknownIds = requestedIds.filter((id) => !this.pluginRegistry.has(id));
+    if (unknownIds.length) throw new BadRequestException('One or more selected plugins are not available');
+
+    const resolvedPlugins = requestedIds.filter((id) => enabledIds.has(id));
+    if (!resolvedPlugins.length) {
+      throw new BadRequestException(
+        executionMode === 'all'
+          ? 'Enable at least one plugin before running an assessment'
+          : 'None of the selected plugins are currently enabled',
+      );
     }
 
     const assessment = await this.prisma.assessment.create({
@@ -99,13 +134,14 @@ export class AssessmentsService {
         status: 'QUEUED',
         config: {
           create: {
-            executionMode:          config?.executionMode          ?? 'all',
-            scanProfileId:          config?.scanProfileId          ?? null,
-            manualPlugins:          config?.manualPlugins          ?? [],
-            enableAiAnalysis:       config?.enableAiAnalysis       ?? true,
-            maxRequestsPerEndpoint: config?.maxRequestsPerEndpoint ?? 10,
-            requestDelayMs:         config?.requestDelayMs         ?? 200,
-            timeoutMs:              config?.timeoutMs              ?? 10000,
+            executionMode,
+            scanProfileId:          profileId,
+            manualPlugins:          executionMode === 'manual' ? requestedIds : [],
+            resolvedPlugins,
+            enableAiAnalysis:       config.enableAiAnalysis       ?? true,
+            maxRequestsPerEndpoint: config.maxRequestsPerEndpoint ?? 10,
+            requestDelayMs:         config.requestDelayMs         ?? 200,
+            timeoutMs:              config.timeoutMs              ?? 10000,
           } as any,
         },
       },

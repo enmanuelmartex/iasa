@@ -61,7 +61,7 @@ export class ScannerService {
     //                             falling back to global Plugin.isEnabled
     //  Without user context     → use global Plugin.isEnabled only
     //
-    const enabledPlugins: BasePlugin[] = pluginOverride?.length
+    const enabledPlugins: BasePlugin[] = pluginOverride !== undefined
       ? pluginOverride
       : userId
         ? await this.pluginRegistry.getEnabledForUser(userId)

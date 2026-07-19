@@ -66,18 +66,26 @@ export class ScannerProcessor extends WorkerHost {
         where: { assessmentId },
       });
 
-      // Resolve plugin list based on execution mode
-      let pluginOverride: BasePlugin[] | undefined;
+      // The API resolves and freezes the effective selection before queueing.
+      // Never fall back to all plugins when an explicit selection is empty/invalid.
+      let resolvedPluginIds: string[] = assessmentConfig?.resolvedPlugins ?? [];
 
-      if (assessmentConfig?.executionMode === 'profile' && assessmentConfig.scanProfileId) {
-        const profile = await this.prisma.scanProfile.findUnique({
-          where: { id: assessmentConfig.scanProfileId },
-        });
-        if (profile?.enabledPlugins?.length) {
-          pluginOverride = this.pluginRegistry.getByIds(profile.enabledPlugins);
-        }
-      } else if (assessmentConfig?.executionMode === 'manual' && assessmentConfig.manualPlugins?.length) {
-        pluginOverride = this.pluginRegistry.getByIds(assessmentConfig.manualPlugins);
+      // Backward compatibility for jobs created before resolvedPlugins existed.
+      if (!resolvedPluginIds.length && assessmentConfig?.executionMode === 'profile' && assessmentConfig.scanProfileId) {
+        const legacyProfile = await this.prisma.scanProfile.findUnique({ where: { id: assessmentConfig.scanProfileId } });
+        resolvedPluginIds = legacyProfile?.enabledPlugins ?? [];
+      } else if (!resolvedPluginIds.length && assessmentConfig?.executionMode === 'manual') {
+        resolvedPluginIds = assessmentConfig.manualPlugins ?? [];
+      } else if (!resolvedPluginIds.length && (!assessmentConfig?.executionMode || assessmentConfig.executionMode === 'all')) {
+        resolvedPluginIds = userId
+          ? (await this.pluginRegistry.getEnabledForUser(userId)).map((plugin) => plugin.manifest.id)
+          : (await this.pluginRegistry.getEnabledGlobally()).map((plugin) => plugin.manifest.id);
+      }
+
+      if (!resolvedPluginIds.length) throw new Error('Assessment has no resolved plugins');
+      const pluginOverride: BasePlugin[] = this.pluginRegistry.getByIds(resolvedPluginIds);
+      if (pluginOverride.length !== resolvedPluginIds.length) {
+        throw new Error('One or more assessment plugins are no longer available');
       }
 
       this.emit(assessmentId, {

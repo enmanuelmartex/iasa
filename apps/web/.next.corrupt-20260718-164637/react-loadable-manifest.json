@@ -1,0 +1,32 @@
+{
+  "..\\..\\..\\node_modules\\.bun\\@tanstack+query-devtools@5.101.2\\node_modules\\@tanstack\\query-devtools\\build\\dev.js -> ./DevtoolsComponent/SO26Z5QU.js": {
+    "id": "..\\..\\..\\node_modules\\.bun\\@tanstack+query-devtools@5.101.2\\node_modules\\@tanstack\\query-devtools\\build\\dev.js -> ./DevtoolsComponent/SO26Z5QU.js",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_bun_tanstack_query-devtools_5_101_2_node_modules_tanstack_que-5c82a2.js"
+    ]
+  },
+  "..\\..\\..\\node_modules\\.bun\\@tanstack+query-devtools@5.101.2\\node_modules\\@tanstack\\query-devtools\\build\\dev.js -> ./DevtoolsPanelComponent/MYKLHYJZ.js": {
+    "id": "..\\..\\..\\node_modules\\.bun\\@tanstack+query-devtools@5.101.2\\node_modules\\@tanstack\\query-devtools\\build\\dev.js -> ./DevtoolsPanelComponent/MYKLHYJZ.js",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_bun_tanstack_query-devtools_5_101_2_node_modules_tanstack_que-1b15a7.js"
+    ]
+  },
+  "..\\..\\..\\node_modules\\.bun\\next@15.5.19+1fe230c8c760c65f\\node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts": {
+    "id": "..\\..\\..\\node_modules\\.bun\\next@15.5.19+1fe230c8c760c65f\\node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_bun_next_15_5_19_1fe230c8c760c65f_node_modules_next_dist_clie-b1e5cc.js"
+    ]
+  },
+  "..\\..\\..\\node_modules\\.bun\\next@15.5.19+1fe230c8c760c65f\\node_modules\\next\\dist\\client\\index.js -> ../pages/_app": {
+    "id": "..\\..\\..\\node_modules\\.bun\\next@15.5.19+1fe230c8c760c65f\\node_modules\\next\\dist\\client\\index.js -> ../pages/_app",
+    "files": [
+      "static/chunks/_pages-dir-browser_node_modules_bun_next_15_5_19_1fe230c8c760c65f_node_modules_next_dist_page-c8a0ac.js"
+    ]
+  },
+  "..\\..\\..\\node_modules\\.bun\\next@15.5.19+1fe230c8c760c65f\\node_modules\\next\\dist\\client\\index.js -> ../pages/_error": {
+    "id": "..\\..\\..\\node_modules\\.bun\\next@15.5.19+1fe230c8c760c65f\\node_modules\\next\\dist\\client\\index.js -> ../pages/_error",
+    "files": [
+      "static/chunks/_pages-dir-browser_node_modules_bun_next_15_5_19_1fe230c8c760c65f_node_modules_next_dist_page-e67b91.js"
+    ]
+  }
+}

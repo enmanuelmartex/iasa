@@ -15,6 +15,7 @@ import { Observable } from 'rxjs';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AssessmentsService } from './assessments.service';
+import { RunAssessmentDto } from './dto/run-assessment.dto';
 
 @ApiTags('Assessments')
 @ApiBearerAuth('JWT')
@@ -49,7 +50,7 @@ export class AssessmentsController {
   createAndRun(
     @Param('projectId') projectId: string,
     @CurrentUser() user: any,
-    @Body() config?: any,
+    @Body() config: RunAssessmentDto,
   ) {
     return this.assessmentsService.createAndRun(projectId, user.id, config);
   }

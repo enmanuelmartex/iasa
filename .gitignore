@@ -25,8 +25,9 @@ tsconfig.tsbuildinfo
 # Prisma
 apps/api/prisma/migrations/*.sql.bak
 
-# Reports (user-generated)
-reports/
+# Reports generated at the repository root. Keep frontend source routes named
+# `reports` visible to Git.
+/reports/
 *.pdf
 *.sarif
 

@@ -1,0 +1,2 @@
+-- Baseline migration.
+-- Project draft columns were previously applied with `prisma db push`.

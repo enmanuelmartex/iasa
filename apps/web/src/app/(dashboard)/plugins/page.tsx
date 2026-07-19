@@ -4,37 +4,57 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
-  Puzzle, Shield, Search, Filter, ToggleLeft, ToggleRight,
-  ChevronRight, Clock, AlertTriangle, CheckCircle, Tag,
-  Zap, Lock, Layers, Activity, CloudCog, Settings2,
-} from 'lucide-react';
+  IconPuzzle,
+  IconShieldLock,
+  IconSearch,
+  IconFilter,
+  IconToggleLeft,
+  IconToggleRight,
+  IconChevronRight,
+  IconClock,
+  IconAlertTriangle,
+  IconCircleCheck,
+  IconBolt,
+  IconLock,
+  IconStack,
+  IconActivity,
+  IconCloudCog,
+  IconAdjustments,
+} from '@tabler/icons-react';
 import { pluginsApi } from '@/lib/api';
-import { Plugin, PluginCategory } from '@/types';
+import type { Plugin } from '@/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { PageContainer } from '@/components/layout/page-container';
+import { PageHeader } from '@/components/layout/page-header';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 
-const CATEGORY_ICONS: Record<string, any> = {
-  'Authentication': Lock,
-  'Authorization': Shield,
-  'Headers': Layers,
-  'Injection': AlertTriangle,
-  'API Design': Settings2,
-  'Performance': Zap,
-  'Infrastructure': CloudCog,
-  'Compliance': CheckCircle,
-  'AI': Activity,
+const CATEGORY_ICONS: Record<string, typeof IconPuzzle> = {
+  Authentication: IconLock,
+  Authorization: IconShieldLock,
+  Headers: IconStack,
+  Injection: IconAlertTriangle,
+  'API Design': IconAdjustments,
+  Performance: IconBolt,
+  Infrastructure: IconCloudCog,
+  Compliance: IconCircleCheck,
+  AI: IconActivity,
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  'Authentication': 'text-violet-400 bg-violet-500/10 border-violet-500/20',
-  'Authorization': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-  'Headers': 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
-  'Injection': 'text-red-400 bg-red-500/10 border-red-500/20',
-  'API Design': 'text-slate-400 bg-slate-500/10 border-slate-500/20',
-  'Performance': 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
-  'Infrastructure': 'text-orange-400 bg-orange-500/10 border-orange-500/20',
-  'Compliance': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  'AI': 'text-pink-400 bg-pink-500/10 border-pink-500/20',
+  Authentication: 'text-primary bg-primary/10 border-primary/20',
+  Authorization: 'text-chart-2 bg-chart-2/10 border-chart-2/20',
+  Headers: 'text-cyan bg-cyan/10 border-cyan/20',
+  Injection: 'text-destructive bg-destructive/10 border-destructive/20',
+  'API Design': 'text-muted-foreground bg-muted border-border',
+  Performance: 'text-severity-medium bg-severity-medium/10 border-severity-medium/20',
+  Infrastructure: 'text-severity-high bg-severity-high/10 border-severity-high/20',
+  Compliance: 'text-success bg-success/10 border-success/20',
+  AI: 'text-chart-3 bg-chart-3/10 border-chart-3/20',
 };
 
 export default function PluginsPage() {
@@ -48,8 +68,7 @@ export default function PluginsPage() {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ id, isEnabled }: { id: string; isEnabled: boolean }) =>
-      pluginsApi.toggle(id, isEnabled),
+    mutationFn: ({ id, isEnabled }: { id: string; isEnabled: boolean }) => pluginsApi.toggle(id, isEnabled),
     onSuccess: (_, { isEnabled }) => {
       queryClient.invalidateQueries({ queryKey: ['plugins'] });
       toast.success(isEnabled ? 'Plugin enabled' : 'Plugin disabled');
@@ -72,69 +91,55 @@ export default function PluginsPage() {
   const enabledCount = plugins.filter((p) => p.isEnabled).length;
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <Puzzle className="w-5 h-5 text-violet-400" />
-            <h1 className="text-xl font-semibold text-white">Plugins</h1>
-          </div>
-          <p className="text-sm text-slate-400">
-            Manage security plugins · {enabledCount} of {plugins.length} enabled
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/plugins/profiles"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
-          >
-            <Filter className="w-3.5 h-3.5" />
-            Profiles
-          </Link>
-        </div>
-      </div>
+    <PageContainer>
+      <PageHeader
+        title="Plugins"
+        description={`Manage security plugins · ${enabledCount} of ${plugins.length} enabled`}
+        actions={
+          <Button asChild variant="outline">
+            <Link href="/plugins/profiles">
+              <IconFilter className="h-3.5 w-3.5" />
+              Profiles
+            </Link>
+          </Button>
+        }
+      />
 
       {/* Stats strip */}
-      <div className="grid grid-cols-4 gap-3">
-        {[
-          { label: 'Installed', value: plugins.length, color: 'text-white' },
-          { label: 'Enabled', value: enabledCount, color: 'text-emerald-400' },
-          { label: 'Disabled', value: plugins.length - enabledCount, color: 'text-slate-400' },
-          {
-            label: 'Categories',
-            value: new Set(plugins.map((p) => p.category)).size,
-            color: 'text-violet-400',
-          },
-        ].map((s) => (
-          <div key={s.label} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-            <p className="text-xs text-slate-500 mb-1">{s.label}</p>
-            <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
-          </div>
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {(
+          [
+            { label: 'Installed', value: plugins.length, color: 'text-foreground' },
+            { label: 'Enabled', value: enabledCount, color: 'text-success' },
+            { label: 'Disabled', value: plugins.length - enabledCount, color: 'text-muted-foreground' },
+            { label: 'Categories', value: new Set(plugins.map((p) => p.category)).size, color: 'text-primary' },
+          ] as const
+        ).map((s) => (
+          <Card key={s.label}>
+            <CardContent className="p-4">
+              <p className="mb-1 text-xs text-muted-foreground">{s.label}</p>
+              <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
       {/* Search + category filter */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search plugins…"
-            className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50"
-          />
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative max-w-sm flex-1">
+          <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search plugins…" className="pl-9" />
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex flex-wrap items-center gap-1.5">
           {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
               className={cn(
-                'px-2.5 py-1 rounded-md text-xs font-medium border transition-colors',
+                'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
                 selectedCategory === cat
-                  ? 'bg-violet-500/15 text-violet-300 border-violet-500/30'
-                  : 'text-slate-400 border-slate-800 hover:border-slate-700 hover:text-slate-300',
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground',
               )}
             >
               {cat === 'all' ? 'All' : cat}
@@ -145,121 +150,91 @@ export default function PluginsPage() {
 
       {/* Plugin grid */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 animate-pulse h-52" />
+            <Skeleton key={i} className="h-52 rounded-xl" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-slate-500">
-          <Puzzle className="w-8 h-8 mx-auto mb-3 opacity-40" />
-          <p className="text-sm">No plugins match your search</p>
-        </div>
+        <Card>
+          <CardContent>
+            <EmptyState icon={IconPuzzle} title="No plugins match your search" />
+          </CardContent>
+        </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((plugin) => (
-            <PluginCard
-              key={plugin.id}
-              plugin={plugin}
-              onToggle={(isEnabled) =>
-                toggleMutation.mutate({ id: plugin.id, isEnabled })
-              }
-              isToggling={toggleMutation.isPending}
-            />
+            <PluginCard key={plugin.id} plugin={plugin} onToggle={(isEnabled) => toggleMutation.mutate({ id: plugin.id, isEnabled })} isToggling={toggleMutation.isPending} />
           ))}
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }
 
-function PluginCard({
-  plugin,
-  onToggle,
-  isToggling,
-}: {
-  plugin: Plugin;
-  onToggle: (v: boolean) => void;
-  isToggling: boolean;
-}) {
-  const Icon = CATEGORY_ICONS[plugin.category] ?? Puzzle;
-  const colorClass = CATEGORY_COLORS[plugin.category] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20';
+function PluginCard({ plugin, onToggle, isToggling }: { plugin: Plugin; onToggle: (_v: boolean) => void; isToggling: boolean }) {
+  const Icon = CATEGORY_ICONS[plugin.category] ?? IconPuzzle;
+  const colorClass = CATEGORY_COLORS[plugin.category] ?? 'text-muted-foreground bg-muted border-border';
 
   return (
-    <div
-      className={cn(
-        'group bg-slate-900/60 border rounded-xl p-5 flex flex-col gap-4 transition-all duration-200',
-        plugin.isEnabled
-          ? 'border-slate-700/60 hover:border-slate-600'
-          : 'border-slate-800 opacity-60 hover:opacity-80',
-      )}
-    >
+    <Card className={cn('flex flex-col gap-4 p-5 transition-all', plugin.isEnabled ? 'hover:border-foreground/20' : 'opacity-60 hover:opacity-80')}>
       {/* Top row */}
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={cn('w-9 h-9 rounded-lg border flex items-center justify-center flex-shrink-0', colorClass)}>
-            <Icon className="w-4 h-4" />
+        <div className="flex min-w-0 items-center gap-3">
+          <div className={cn('flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border', colorClass)}>
+            <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{plugin.name}</p>
-            <p className="text-[11px] text-slate-500 font-mono">v{plugin.version}</p>
+            <p className="truncate text-sm font-semibold text-foreground">{plugin.name}</p>
+            <p className="font-mono text-[11px] text-muted-foreground">v{plugin.version}</p>
           </div>
         </div>
         <button
           onClick={() => onToggle(!plugin.isEnabled)}
           disabled={isToggling}
-          className="flex-shrink-0 transition-colors"
+          className="flex-shrink-0 text-muted-foreground transition-colors hover:text-foreground"
           title={plugin.isEnabled ? 'Disable plugin' : 'Enable plugin'}
         >
-          {plugin.isEnabled ? (
-            <ToggleRight className="w-6 h-6 text-violet-400 hover:text-violet-300" />
-          ) : (
-            <ToggleLeft className="w-6 h-6 text-slate-600 hover:text-slate-400" />
-          )}
+          {plugin.isEnabled ? <IconToggleRight className="h-6 w-6 text-primary" /> : <IconToggleLeft className="h-6 w-6" />}
         </button>
       </div>
 
       {/* Description */}
-      <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{plugin.description}</p>
+      <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{plugin.description}</p>
 
       {/* OWASP tags */}
       <div className="flex flex-wrap gap-1">
         {plugin.owaspMappings.map((owasp) => (
-          <span key={owasp} className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] font-mono text-slate-400 border border-slate-700">
+          <span key={owasp} className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             {owasp}
           </span>
         ))}
-        <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium border', colorClass)}>
-          {plugin.category}
-        </span>
+        <span className={cn('rounded border px-1.5 py-0.5 text-[10px] font-medium', colorClass)}>{plugin.category}</span>
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between pt-1 border-t border-slate-800">
-        <div className="flex items-center gap-3 text-[10px] text-slate-600">
+      <div className="flex items-center justify-between border-t border-border pt-1">
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
           {plugin.stats && (
             <>
               <span className="flex items-center gap-1">
-                <Activity className="w-3 h-3" />
+                <IconActivity className="h-3 w-3" />
                 {plugin.stats.totalExecutions} runs
               </span>
               {plugin.stats.avgDurationMs > 0 && (
                 <span className="flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
+                  <IconClock className="h-3 w-3" />
                   {plugin.stats.avgDurationMs}ms avg
                 </span>
               )}
             </>
           )}
         </div>
-        <Link
-          href={`/plugins/${plugin.id}`}
-          className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-violet-400 transition-colors"
-        >
+        <Link href={`/plugins/${plugin.id}`} className="flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-primary">
           Details
-          <ChevronRight className="w-3 h-3" />
+          <IconChevronRight className="h-3 w-3" />
         </Link>
       </div>
-    </div>
+    </Card>
   );
 }
