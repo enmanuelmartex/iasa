@@ -65,6 +65,34 @@ export interface ScanFinding {
   owaspCategory: string;
   cweId?: string;
   pluginId: string;
+
+  /**
+   * Stable, namespaced identifier of the RULE that produced this finding,
+   * e.g. `headers.missing-hsts`. Part of the issue fingerprint.
+   *
+   * Must be declared explicitly in the plugin, never slugified from the title
+   * at runtime: an editorial change to a message must not change the identity
+   * of the issue it describes. A plugin that emits several kinds of finding
+   * must use a distinct ruleId for each.
+   */
+  ruleId: string;
+
+  /**
+   * Stable name of the affected area, e.g. `response-header:cache-control`,
+   * `query:user_id`, `body:password`, `endpoint`, `project`. Part of the
+   * fingerprint, so it must name a location and never carry an observed value.
+   */
+  component?: string;
+
+  /**
+   * Template path this finding refers to, e.g. `/users/{id}`. Defaults to the
+   * referenced endpoint's path. Never a concrete URL with real ids.
+   */
+  route?: string;
+
+  /** HTTP method of the affected endpoint. Omit for project-wide findings. */
+  method?: string;
+
   endpointId?: string;
   affectedUrl?: string;
   description: string;

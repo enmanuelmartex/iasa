@@ -19,6 +19,10 @@ export class BolaPlugin extends BasePlugin {
     permissions: ['http:read', 'findings:write'],
     minimumCoreVersion: '1.0.0',
     isBuiltin: true,
+    ruleNamespace: 'bola',
+    ruleIds: [
+      'bola.unprotected-object-reference',
+    ],
   };
 
   private readonly idPatterns = [
@@ -67,6 +71,10 @@ export class BolaPlugin extends BasePlugin {
               owaspCategory: 'API1:2023',
               cweId: 'CWE-639',
               pluginId: this.id,
+              ruleId: 'bola.unprotected-object-reference',
+              component: 'path:param',
+              route: endpoint.path,
+              method: endpoint.method,
               endpointId: endpoint.id,
               affectedUrl: `${endpoint.method} ${url}`,
               description: `The endpoint ${endpoint.method} ${endpoint.path} returned HTTP 200 with data when accessed with ID "${testId}". This suggests the API may not be validating object ownership, potentially allowing unauthorized access to resources belonging to other users.`,

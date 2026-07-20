@@ -19,6 +19,11 @@ export class SsrfPlugin extends BasePlugin {
     permissions: ['http:read', 'http:write', 'findings:write'],
     minimumCoreVersion: '1.0.0',
     isBuiltin: true,
+    ruleNamespace: 'ssrf',
+    ruleIds: [
+      'ssrf.cloud-metadata-accessible',
+      'ssrf.body-url-parameter',
+    ],
   };
 
   private readonly ssrfPayloads = [
@@ -90,6 +95,10 @@ export class SsrfPlugin extends BasePlugin {
                 cvssScore: 10.0,
                 owaspCategory: 'API7:2023',
                 cweId: 'CWE-918',
+                ruleId: 'ssrf.cloud-metadata-accessible',
+                component: 'query:url-parameter',
+                route: endpoint.path,
+                method: endpoint.method,
                 pluginId: this.id,
                 endpointId: endpoint.id,
                 affectedUrl: `${endpoint.method} ${url}`,
@@ -173,6 +182,10 @@ function isSsrfUrl(url: string): boolean {
                 endpointId: endpoint.id,
                 affectedUrl: `${endpoint.method} ${url}`,
                 description: `The endpoint ${endpoint.method} ${endpoint.path} accepts URL parameters in the request body (${urlBodyParams.join(', ')}). If not validated, these could be used to trigger server-side requests to internal resources.`,
+                ruleId: 'ssrf.body-url-parameter',
+                component: 'body:url-parameter',
+                route: endpoint.path,
+                method: endpoint.method,
                 impact: 'Attackers can make the server fetch arbitrary URLs, potentially accessing internal services, cloud metadata, or other resources.',
                 likelihood: 'MEDIUM',
                 riskScore: 8.6,

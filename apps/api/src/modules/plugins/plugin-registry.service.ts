@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BasePlugin } from '../scanner/types/scanner.types';
 import { PluginCategory, PluginManifest } from '../scanner/types/plugin-manifest.types';
+import { collectDeclaredRuleIds, findRuleDeclarationProblems } from './rule-declarations.util';
 
 // ─── Built-in plugins ──────────────────────────────────────────────────────
 import { SecurityHeadersPlugin } from '../scanner/plugins/headers/security-headers.plugin';
@@ -28,12 +29,49 @@ export interface PluginWithMeta {
 export class PluginRegistryService implements OnModuleInit {
   private readonly logger = new Logger(PluginRegistryService.name);
   private readonly registry = new Map<string, BasePlugin>();
+  private declaredRuleIds: Set<string> = new Set();
 
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
     this.registerBuiltins();
+    this.validateRuleDeclarations();
     await this.syncToDatabase();
+  }
+
+  /**
+   * Rejects malformed rule declarations at boot, before any scan can run.
+   *
+   * Rule ids are part of the issue fingerprint, so a duplicate or an unstable id
+   * silently merges or splits vulnerabilities across the whole product. Failing
+   * startup is the correct response — a bad rule id corrupts data quietly.
+   */
+  private validateRuleDeclarations(): void {
+    const manifests = this.getAllManifests();
+    const problems = findRuleDeclarationProblems(manifests);
+
+    if (problems.length > 0) {
+      throw new Error(
+        'Invalid plugin rule declarations — refusing to start:\n' +
+          problems.map((problem) => `  • ${problem}`).join('\n'),
+      );
+    }
+
+    this.declaredRuleIds = collectDeclaredRuleIds(manifests);
+    this.logger.log(
+      `Validated ${this.declaredRuleIds.size} rule ids across ${this.registry.size} plugins`,
+    );
+  }
+
+  /** True when `ruleId` was declared by `pluginId`'s manifest. */
+  isDeclaredRule(pluginId: string, ruleId: string): boolean {
+    const plugin = this.registry.get(pluginId);
+    return plugin ? plugin.manifest.ruleIds.includes(ruleId) : false;
+  }
+
+  /** Every rule id the installed checks can emit. */
+  getDeclaredRuleIds(): ReadonlySet<string> {
+    return this.declaredRuleIds;
   }
 
   // ── Registration ──────────────────────────────────────────────────────────
