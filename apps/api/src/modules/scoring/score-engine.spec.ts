@@ -233,7 +233,7 @@ describe('exposure multiplier', () => {
         ],
       }),
     );
-    expect(result.rulePenalties[0].severity).toBe('CRITICAL');
+    expect(result.rulePenalties[0].highestSeverity).toBe('CRITICAL');
   });
 });
 
@@ -261,7 +261,7 @@ describe('determinism and explainability', () => {
     const rule = result.rulePenalties[0];
     expect(rule.severityWeight).toBe(40);
     expect(rule.exposureMultiplier).toBe(1);
-    expect(rule.penalty).toBe(40);
+    expect(rule.rulePenalty).toBe(40);
     expect(rule.fingerprints).toHaveLength(1);
     expect(rule.affectedComponents).toHaveLength(1);
   });
@@ -278,6 +278,54 @@ describe('determinism and explainability', () => {
 describe('componentKey', () => {
   it('combines method, route and component', () => {
     expect(componentKey(issue({ method: 'POST', normalizedRoute: '/a', component: 'body:x' })))
-      .toBe('POST /a [body:x]');
+      .toBe('POST|/a|body:x');
+  });
+});
+
+describe('snapshot completeness', () => {
+  it('records every field needed to explain a rule penalty', () => {
+    const result = computeScore(
+      input({
+        issues: [
+          issue({ fingerprint: 'fp-a', normalizedRoute: '/a', severity: 'LOW' }),
+          issue({ fingerprint: 'fp-b', normalizedRoute: '/b', severity: 'CRITICAL' }),
+        ],
+      }),
+    );
+
+    const rule = result.rulePenalties[0];
+    expect(rule.pluginId).toBe('security-headers');
+    expect(rule.ruleId).toBe('headers.missing-hsts');
+    expect(rule.aggregationKey).toBe('security-headers|headers.missing-hsts');
+    expect(rule.highestSeverity).toBe('CRITICAL');
+    expect(rule.severityWeight).toBe(40);
+    expect(rule.fingerprints).toEqual(['fp-a', 'fp-b']);
+    expect(rule.fingerprintCount).toBe(2);
+    expect(rule.distinctAffectedComponents).toBe(2);
+    expect(rule.exposureMultiplier).toBe(1.25);
+    expect(rule.rulePenalty).toBe(50);
+  });
+
+  it('keeps each manifestation severity, so the highest choice is auditable', () => {
+    const result = computeScore(
+      input({
+        issues: [
+          issue({ fingerprint: 'fp-a', normalizedRoute: '/a', severity: 'LOW' }),
+          issue({ fingerprint: 'fp-b', normalizedRoute: '/b', severity: 'CRITICAL' }),
+        ],
+      }),
+    );
+
+    const severities = result.rulePenalties[0].manifestations.map((m) => m.severity).sort();
+    expect(severities).toEqual(['CRITICAL', 'LOW']);
+    // The penalty used the highest, but both are preserved.
+    expect(result.rulePenalties[0].highestSeverity).toBe('CRITICAL');
+  });
+
+  it('stores affectedComponents in the canonical METHOD|route|component form', () => {
+    const result = computeScore(
+      input({ issues: [issue({ method: 'POST', normalizedRoute: '/x', component: 'body:pw' })] }),
+    );
+    expect(result.rulePenalties[0].affectedComponents).toEqual(['POST|/x|body:pw']);
   });
 });

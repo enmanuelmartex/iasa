@@ -165,7 +165,7 @@ describe('persisted score snapshot', () => {
 
     const after = await prisma.assessmentSummary.findUniqueOrThrow({ where: { assessmentId: SCAN_A } });
     expect(after.securityScore).toBe(before.securityScore);
-    expect((after.scoreExplanation as any).rulePenalties[0].severity).toBe('HIGH');
+    expect((after.scoreExplanation as any).rulePenalties[0].highestSeverity).toBe('HIGH');
   });
 });
 

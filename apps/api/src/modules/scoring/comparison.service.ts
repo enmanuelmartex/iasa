@@ -235,21 +235,22 @@ export class ComparisonService {
       removedChecks: removed.sort(),
     };
 
-    // Scores from different algorithm versions are not the same quantity.
-    if (
-      baseline.scoreVersion &&
-      current.scoreVersion &&
-      baseline.scoreVersion !== current.scoreVersion
-    ) {
+    if (baseline.securityScore === null || current.securityScore === null) {
       warnings.push(
-        `The scans were scored with different algorithm versions (${baseline.scoreVersion} vs ${current.scoreVersion}), so their scores are not directly comparable.`,
+        'At least one of the scans has no computable score, so the two cannot be compared numerically.',
       );
       return { comparability: 'NOT_COMPARABLE' as Comparability, warnings, scopeChanges };
     }
 
-    if (baseline.securityScore === null || current.securityScore === null) {
+    // Scores from different algorithm versions are not the same quantity.
+    // Full comparability REQUIRES an identical scoreVersion — a missing version
+    // on either side is also disqualifying, because an unknown algorithm cannot
+    // be assumed to match.
+    if (baseline.scoreVersion !== current.scoreVersion) {
       warnings.push(
-        'At least one of the scans has no computable score, so the two cannot be compared numerically.',
+        `The scans were scored with different algorithm versions ` +
+          `(${baseline.scoreVersion ?? 'unknown'} vs ${current.scoreVersion ?? 'unknown'}), ` +
+          `so their scores are not the same quantity and cannot be compared directly.`,
       );
       return { comparability: 'NOT_COMPARABLE' as Comparability, warnings, scopeChanges };
     }

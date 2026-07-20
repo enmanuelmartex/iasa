@@ -76,18 +76,44 @@ export interface ScoreInput {
   coverage: CoverageInput;
 }
 
-/** Per-rule contribution, retained so a score can be explained line by line. */
+/** One manifestation of a rule, retained so the chosen severity is explainable. */
+export interface RuleManifestation {
+  fingerprint: string;
+  /** Canonical METHOD|normalizedRoute|component. */
+  component: string;
+  /** Severity of THIS manifestation, which may differ from the group's highest. */
+  severity: Severity;
+}
+
+/**
+ * Per-rule contribution, retained so a score can be explained line by line.
+ *
+ * The penalty unit of score-v1 is the affected security RULE, not the
+ * individual fingerprint. Fingerprints remain the identity of each
+ * manifestation and the basis for comparing issues, but they do not each
+ * generate a full penalty.
+ */
 export interface RulePenalty {
   pluginId: string;
   ruleId: string;
-  severity: Severity;
+  /** The grouping key this penalty was computed for: `pluginId|ruleId`. */
+  aggregationKey: string;
+  /** Severity used for the penalty: the highest observed in the group. */
+  highestSeverity: Severity;
   severityWeight: number;
-  /** Distinct METHOD + normalizedRoute + component triples this rule affects. */
-  distinctAffectedComponents: number;
-  affectedComponents: string[];
-  exposureMultiplier: number;
-  penalty: number;
   fingerprints: string[];
+  fingerprintCount: number;
+  /** Distinct canonical METHOD|normalizedRoute|component values. */
+  affectedComponents: string[];
+  distinctAffectedComponents: number;
+  exposureMultiplier: number;
+  rulePenalty: number;
+  /**
+   * Every manifestation with its own severity. Kept even though only the
+   * highest drives the penalty, so the choice can be explained and a future
+   * inconsistency between plugins reporting the same rule is detectable.
+   */
+  manifestations: RuleManifestation[];
 }
 
 export interface ScoreResult {
@@ -112,10 +138,15 @@ const UNSCORABLE_STATUSES = new Set(['PENDING', 'QUEUED', 'RUNNING', 'FAILED', '
 
 /**
  * The identity of an affected component within a rule.
- * Documented contract: METHOD + normalizedRoute + component.
+ * Canonical contract: METHOD|normalizedRoute|component.
  */
 export function componentKey(issue: ScorableIssue): string {
-  return `${issue.method} ${issue.normalizedRoute} [${issue.component}]`;
+  return `${issue.method}|${issue.normalizedRoute}|${issue.component}`;
+}
+
+/** The grouping key of a rule penalty: `pluginId|ruleId`. */
+export function aggregationKey(issue: Pick<ScorableIssue, 'pluginId' | 'ruleId'>): string {
+  return `${issue.pluginId}|${issue.ruleId}`;
 }
 
 export function exposureMultiplier(distinctAffectedComponents: number): number {
@@ -175,7 +206,7 @@ export function computeScore(input: ScoreInput): ScoreResult {
   const deduplicated = dedupeByFingerprint(issues);
   const rulePenalties = buildRulePenalties(deduplicated);
 
-  const uncappedPenalty = round2(rulePenalties.reduce((sum, rule) => sum + rule.penalty, 0));
+  const uncappedPenalty = round2(rulePenalties.reduce((sum, rule) => sum + rule.rulePenalty, 0));
   const totalPenalty = Math.min(MAX_TOTAL_PENALTY, uncappedPenalty);
   const securityScore = Math.round(Math.max(0, 100 - totalPenalty));
 
@@ -240,7 +271,7 @@ function dedupeByFingerprint(issues: ScorableIssue[]): ScorableIssue[] {
 function buildRulePenalties(issues: ScorableIssue[]): RulePenalty[] {
   const groups = new Map<string, ScorableIssue[]>();
   for (const issue of issues) {
-    const key = `${issue.pluginId}|${issue.ruleId}`;
+    const key = aggregationKey(issue);
     const group = groups.get(key);
     if (group) group.push(issue);
     else groups.set(key, [issue]);
@@ -248,10 +279,11 @@ function buildRulePenalties(issues: ScorableIssue[]): RulePenalty[] {
 
   const penalties: RulePenalty[] = [];
 
-  for (const group of groups.values()) {
+  for (const [key, group] of groups) {
     // A rule can report different severities on different endpoints. Score the
-    // worst one: the rule's risk is set by its most severe manifestation.
-    const severity = group.reduce(
+    // worst one: the rule's risk is set by its most severe manifestation. Every
+    // individual severity is still recorded below so that choice is auditable.
+    const highestSeverity = group.reduce(
       (worst, issue) =>
         SEVERITY_WEIGHTS[issue.severity] > SEVERITY_WEIGHTS[worst] ? issue.severity : worst,
       group[0].severity,
@@ -259,24 +291,33 @@ function buildRulePenalties(issues: ScorableIssue[]): RulePenalty[] {
 
     const affectedComponents = [...new Set(group.map(componentKey))].sort();
     const multiplier = exposureMultiplier(affectedComponents.length);
-    const severityWeight = SEVERITY_WEIGHTS[severity];
+    const severityWeight = SEVERITY_WEIGHTS[highestSeverity];
 
     penalties.push({
       pluginId: group[0].pluginId,
       ruleId: group[0].ruleId,
-      severity,
+      aggregationKey: key,
+      highestSeverity,
       severityWeight,
-      distinctAffectedComponents: affectedComponents.length,
-      affectedComponents,
-      exposureMultiplier: round2(multiplier),
-      penalty: round2(severityWeight * multiplier),
       fingerprints: group.map((issue) => issue.fingerprint).sort(),
+      fingerprintCount: group.length,
+      affectedComponents,
+      distinctAffectedComponents: affectedComponents.length,
+      exposureMultiplier: round2(multiplier),
+      rulePenalty: round2(severityWeight * multiplier),
+      manifestations: group
+        .map((issue) => ({
+          fingerprint: issue.fingerprint,
+          component: componentKey(issue),
+          severity: issue.severity,
+        }))
+        .sort((a, b) => a.fingerprint.localeCompare(b.fingerprint)),
     });
   }
 
   // Deterministic order, so two runs produce byte-identical snapshots.
   return penalties.sort(
-    (a, b) => b.penalty - a.penalty || a.ruleId.localeCompare(b.ruleId),
+    (a, b) => b.rulePenalty - a.rulePenalty || a.aggregationKey.localeCompare(b.aggregationKey),
   );
 }
 
