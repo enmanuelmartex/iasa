@@ -6,8 +6,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ScannerService } from './scanner.service';
 import { ScanContext, BasePlugin } from './types/scanner.types';
 import { resolveTargetUrl } from '../../common/utils/url-resolver.util';
+import { createHash } from 'crypto';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { decryptAuthFields } from '../../common/crypto/auth-config.crypto';
+import { IssueLifecycleService } from '../issues/issue-lifecycle.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { ReportGeneratorService } from '../reports/report-generator.service';
 import { ReportsService } from '../reports/reports.service';
@@ -31,8 +33,27 @@ export class ScannerProcessor extends WorkerHost {
     private reportGenerator:  ReportGeneratorService,
     private reportsService:   ReportsService,
     private crypto:           CryptoService,
+    private issueLifecycle:   IssueLifecycleService,
   ) {
     super();
+  }
+
+  /**
+   * Stable hash of the effective scan configuration, stored on each occurrence
+   * so a detection can be tied to the exact settings that produced it.
+   * Deterministic: keys are sorted, so a retry produces the same hash.
+   */
+  private hashConfig(config: any): string | undefined {
+    if (!config) return undefined;
+    const relevant = {
+      executionMode: config.executionMode,
+      resolvedPlugins: [...(config.resolvedPlugins ?? [])].sort(),
+      maxRequestsPerEndpoint: config.maxRequestsPerEndpoint,
+      requestDelayMs: config.requestDelayMs,
+      timeoutMs: config.timeoutMs,
+      enableAiAnalysis: config.enableAiAnalysis,
+    };
+    return createHash('sha256').update(JSON.stringify(relevant), 'utf8').digest('hex');
   }
 
   async process(job: Job<JobData>) {
@@ -138,8 +159,14 @@ export class ScannerProcessor extends WorkerHost {
         },
       };
 
-      await this.prisma.assessmentSummary.create({
-        data: { assessmentId, totalEndpoints: spec.endpoints.length, testedEndpoints: 0 },
+      // Upsert, not create. `assessmentId` is unique, so on a BullMQ retry a
+      // bare create raises a unique-constraint violation that replaces the
+      // ORIGINAL failure in the logs — the real cause of the first failure was
+      // being masked by a symptom of the retry.
+      await this.prisma.assessmentSummary.upsert({
+        where: { assessmentId },
+        update: { totalEndpoints: spec.endpoints.length },
+        create: { assessmentId, totalEndpoints: spec.endpoints.length, testedEndpoints: 0 },
       });
 
       // ── Execute all enabled plugins + AI analysis ─────────────────────────
@@ -161,39 +188,62 @@ export class ScannerProcessor extends WorkerHost {
         progress: 92, message: `Saving ${findings.length} findings...`, findingsCount: findings.length,
       });
 
-      // ── Persist findings ──────────────────────────────────────────────────
-      await Promise.all(
-        findings.map((f) =>
-          this.prisma.finding.create({
-            data: {
-              assessmentId,
-              endpointId:   f.endpointId || null,
-              title:        f.title,
-              category:     f.category,
-              severity:     f.severity,
-              cvssScore:    f.cvssScore,
-              cvssVector:   f.cvssVector,
-              owaspCategory: f.owaspCategory,
-              cweId:        f.cweId,
-              pluginId:     f.pluginId,
-              affectedUrl:  f.affectedUrl,
-              description:  f.description,
-              impact:       f.impact,
-              likelihood:   f.likelihood,
-              riskScore:    f.riskScore,
-              evidence:     f.evidence as any,
-              httpRequest:  f.httpRequest,
-              httpResponse: f.httpResponse,
-              remediation:  f.remediation,
-              references:   f.references || [],
-              aiAnalysis:   f.aiAnalysis as any ?? undefined,
-            },
-          }),
-        ),
+      // ── Persist detections as issues + occurrences ────────────────────────
+      //
+      // Replaces the previous `Promise.all(findings.map(create))`, which had no
+      // identity, no deduplication and no idempotency: a retry inserted every
+      // finding a second time, and a rescan created a fresh OPEN row for a
+      // vulnerability that had already been triaged.
+      const detectedAt = new Date();
+      const lifecycle = await this.issueLifecycle.persistScanResults({
+        projectId,
+        assessmentId,
+        findings,
+        detectedAt,
+        assessmentConfigHash: this.hashConfig(assessmentConfig),
+        specVersion: spec.version ?? undefined,
+        scope: {
+          // Only checks that ran to completion may resolve an issue.
+          successfulPlugins: pluginPlan.executed.filter((id) => !pluginPlan.failed.includes(id)),
+          failedPlugins: pluginPlan.failed,
+          skippedPlugins: pluginPlan.skipped,
+          pluginVersions: pluginPlan.versions,
+        },
+      });
+
+      await this.addLog(
+        assessmentId,
+        'info',
+        'core',
+        `Persisted ${lifecycle.occurrencesCreated} detections — ` +
+          `${lifecycle.issuesCreated} new, ${lifecycle.issuesRecurring} recurring, ` +
+          `${lifecycle.issuesReopened} reopened, ${lifecycle.issuesResolved} resolved, ` +
+          `${lifecycle.issuesNotTested} not tested` +
+          (lifecycle.occurrencesSkipped > 0
+            ? ` (${lifecycle.occurrencesSkipped} already recorded by a previous attempt)`
+            : ''),
       );
 
       // ── Compute and persist summary ───────────────────────────────────────
       const summary = this.calculateSummary(findings, spec.endpoints.length);
+
+      // Execution scope. Coverage answers "how much did we look at?" and is
+      // deliberately kept separate from the score, which answers "how bad is
+      // what we found?".
+      const plannedChecks    = pluginPlan.executed.length;
+      const failedChecks     = pluginPlan.failed.length;
+      const successfulChecks = plannedChecks - failedChecks;
+      const skippedChecks    = pluginPlan.skipped.length;
+
+      // A score is only trustworthy when every planned check actually ran.
+      // UNAVAILABLE keeps securityScore null rather than letting a partial or
+      // empty run present itself as a result.
+      const scoreStatus =
+        successfulChecks === 0
+          ? 'UNAVAILABLE'
+          : failedChecks > 0
+            ? 'PROVISIONAL'
+            : 'FINAL';
 
       await this.prisma.assessmentSummary.update({
         where: { assessmentId },
@@ -205,7 +255,18 @@ export class ScannerProcessor extends WorkerHost {
           mediumCount:     summary.medium,
           lowCount:        summary.low,
           infoCount:       summary.info,
-          securityScore:   summary.score,
+          securityScore:   scoreStatus === 'UNAVAILABLE' ? null : summary.score,
+          scoreStatus:     scoreStatus as any,
+          scoreVersion:    scoreStatus === 'UNAVAILABLE' ? null : 'score-v0-legacy',
+          scoreComputedAt: scoreStatus === 'UNAVAILABLE' ? null : new Date(),
+          plannedChecks,
+          successfulChecks,
+          failedChecks,
+          skippedChecks,
+          executionErrors: failedChecks,
+          coveragePercent: plannedChecks > 0
+            ? Math.round((successfulChecks / plannedChecks) * 1000) / 10
+            : null,
           riskLevel:       summary.riskLevel,
           owaspCoverage:   summary.owaspCoverage,
           pluginResults:   pluginPlan as any,
@@ -257,6 +318,23 @@ export class ScannerProcessor extends WorkerHost {
         where: { id: assessmentId },
         data: { status: 'FAILED', completedAt: new Date(), currentStep: `Failed: ${error.message}` },
       });
+
+      // A failed run must never leave a score behind. The schema default is
+      // already UNAVAILABLE with a null score, but the summary may have been
+      // partially updated before the failure, so clear it explicitly.
+      await this.prisma.assessmentSummary
+        .update({
+          where: { assessmentId },
+          data: {
+            securityScore: null,
+            scoreStatus: 'UNAVAILABLE',
+            scoreVersion: null,
+            scoreComputedAt: null,
+          },
+        })
+        .catch(() => {
+          // No summary row yet — the scan failed before one was created.
+        });
 
       await this.addLog(assessmentId, 'error', 'core', error.message);
 

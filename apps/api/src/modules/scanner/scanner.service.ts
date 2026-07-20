@@ -13,9 +13,17 @@ type LogCallback      = (entry: { level: string; plugin: string; message: string
 export interface PluginExecutionPlan {
   /** All plugin IDs present in the registry */
   available:      string[];
-  /** Plugin IDs that actually ran this assessment */
+  /** Plugin IDs that were selected and attempted this assessment */
   executed:       string[];
-  /** Plugin IDs that were skipped (disabled by user or globally) */
+  /**
+   * Plugin IDs that were attempted but did NOT complete successfully.
+   *
+   * Load-bearing for issue reconciliation: only a check that ran to completion
+   * may resolve an issue. A failed or timed-out check produces "not tested",
+   * never "fixed", so this must never be conflated with `executed`.
+   */
+  failed:         string[];
+  /** Plugin IDs that were skipped (not selected, or disabled) */
   skipped:        string[];
   /** Why each skipped plugin was skipped */
   skippedReason:  Record<string, string>;
@@ -74,6 +82,7 @@ export class ScannerService {
     const plan: PluginExecutionPlan = {
       available:     allRegistered.map((p) => p.manifest.id),
       executed:      [],
+      failed:        [],
       skipped:       [],
       skippedReason: {},
       versions:      Object.fromEntries(allRegistered.map((p) => [p.manifest.id, p.manifest.version])),
@@ -138,6 +147,12 @@ export class ScannerService {
 
       allFindings.push(...findings);
       plan.executed.push(pluginId);
+      if (status !== 'SUCCESS') {
+        // Recorded separately so reconciliation cannot treat "the check broke"
+        // as "the vulnerability is gone".
+        plan.failed.push(pluginId);
+        plan.skippedReason[pluginId] = `execution_${status.toLowerCase()}`;
+      }
       plan.durationMs[pluginId]    = durationMs;
       plan.findingCounts[pluginId] = findings.length;
 
