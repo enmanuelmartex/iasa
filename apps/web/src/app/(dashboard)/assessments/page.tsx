@@ -87,8 +87,8 @@ export default function AssessmentsPage() {
         header: ({ column }) => <DataTableColumnHeader column={column} title="Score" />,
         cell: ({ row }) =>
           row.original.summary ? (
-            <span className={cn('text-sm font-bold', scoreClass(row.original.summary.securityScore))}>
-              {row.original.summary.securityScore}
+            <span className={cn('text-sm font-bold', scoreClass(row.original.summary.securityScore ?? 0))}>
+              {row.original.summary.securityScore ?? "—"}
             </span>
           ) : (
             <span className="text-sm text-muted-foreground">—</span>

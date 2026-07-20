@@ -375,8 +375,8 @@ export class ScannerProcessor extends WorkerHost {
       include: {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
         summary: true,
-        findings: {
-          orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
+        occurrences: {
+          orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
           include: { endpoint: { select: { path: true, method: true } } },
         },
       },

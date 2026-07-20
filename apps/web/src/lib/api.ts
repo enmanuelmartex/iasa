@@ -93,18 +93,43 @@ export const assessmentsApi = {
 };
 
 // Findings
-export const findingsApi = {
+/**
+ * Persistent vulnerabilities.
+ *
+ * Replaces `findingsApi`, which returned one row per detection, so the same
+ * vulnerability appeared once per scan. An issue appears exactly once; the
+ * detections behind it are its occurrences.
+ */
+export const issuesApi = {
   list: (filters?: {
-    severity?: string;
-    status?: string;
     projectId?: string;
-    assessmentId?: string;
+    status?: string;
+    severity?: string;
     owaspCategory?: string;
-  }) => api.get('/findings', { params: filters }).then((r) => r.data),
-  get: (id: string) => api.get(`/findings/${id}`).then((r) => r.data),
-  updateStatus: (id: string, status: string, notes?: string) =>
-    api.patch(`/findings/${id}/status`, { status, notes }).then((r) => r.data),
-  stats: () => api.get('/findings/stats').then((r) => r.data),
+    pluginId?: string;
+    ruleId?: string;
+    assigneeId?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }) => api.get('/issues', { params: filters }).then((r) => r.data),
+
+  get: (id: string) => api.get(`/issues/${id}`).then((r) => r.data),
+
+  stats: (projectId?: string) =>
+    api.get('/issues/stats', { params: projectId ? { projectId } : {} }).then((r) => r.data),
+
+  updateStatus: (
+    id: string,
+    payload: { status: string; reason?: string; acceptedRiskUntil?: string },
+  ) => api.patch(`/issues/${id}/status`, payload).then((r) => r.data),
+
+  assign: (id: string, assigneeId: string | null) =>
+    api.patch(`/issues/${id}/assignee`, { assigneeId }).then((r) => r.data),
+
+  /** Detections produced by one scan — immutable history, not current state. */
+  occurrencesByAssessment: (assessmentId: string) =>
+    api.get(`/issues/occurrences/assessment/${assessmentId}`).then((r) => r.data),
 };
 
 // Plugins
@@ -116,7 +141,7 @@ export const pluginsApi = {
   saveConfig: (id: string, config: Record<string, any>) =>
     api.put(`/plugins/${id}/config`, config).then((r) => r.data),
   getExecutions: (id: string) => api.get(`/plugins/${id}/executions`).then((r) => r.data),
-  getFindings: (id: string) => api.get(`/plugins/${id}/findings`).then((r) => r.data),
+  getIssues: (id: string) => api.get(`/plugins/${id}/issues`).then((r) => r.data),
   run: (id: string, projectId: string, pluginConfig?: Record<string, any>) =>
     api.post(`/plugins/${id}/run`, { projectId, pluginConfig }).then((r) => r.data),
   categories: () => api.get('/plugins/categories').then((r) => r.data),

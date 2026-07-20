@@ -38,7 +38,9 @@ export class AssessmentsService {
       include: {
         project: { select: { id: true, name: true, baseUrl: true } },
         summary: true,
-        _count: { select: { findings: true } },
+        // Detections belonging to this scan. Not the project's issue count:
+        // a scan reports what it observed, the project reports what is open.
+        _count: { select: { occurrences: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -51,8 +53,22 @@ export class AssessmentsService {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
         config: true,
         summary: true,
-        findings: {
-          orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
+        // This scan's detections, each linked to the persistent issue it
+        // belongs to so the UI can offer "open the issue" from a scan result.
+        occurrences: {
+          orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
+          include: {
+            issue: {
+              select: {
+                id: true,
+                status: true,
+                firstSeenAt: true,
+                lastSeenAt: true,
+                occurrenceCount: true,
+                reopenCount: true,
+              },
+            },
+          },
         },
         reports: true,
         logs: {
@@ -232,9 +248,19 @@ export class AssessmentsService {
         orderBy: { createdAt: 'desc' },
         take: 10,
       }),
-      this.prisma.finding.groupBy({
+      // Current risk, from persistent issues — NOT from every occurrence ever
+      // recorded. Counting occurrences made the dashboard totals grow with each
+      // rescan even when nothing about the API had changed.
+      //
+      // Excludes RESOLVED and FALSE_POSITIVE. ACCEPTED_RISK is deliberately
+      // included: accepting a risk is a business decision, not a fix, so the
+      // vulnerability still exists.
+      this.prisma.securityIssue.groupBy({
         by: ['severity'],
-        where: { assessment: { project: { userId } } },
+        where: {
+          project: { userId, isActive: true },
+          status: { in: ['OPEN', 'ACKNOWLEDGED', 'ACCEPTED_RISK'] },
+        },
         _count: { severity: true },
       }),
     ]);

@@ -76,17 +76,6 @@ enum Severity {
   INFO
 }
 
-/// Triage state of a legacy per-scan Finding.
-/// Superseded by IssueStatus, which lives on the persistent SecurityIssue.
-/// Retained while the Finding model coexists; removed in Phase 1B.
-enum FindingStatus {
-  OPEN
-  CONFIRMED
-  FALSE_POSITIVE
-  RESOLVED
-  ACCEPTED_RISK
-}
-
 /// Triage state of a persistent SecurityIssue.
 ///
 /// The state belongs to the issue, not to any single detection: it survives
@@ -437,8 +426,6 @@ model Endpoint {
   security    Json?
   deprecated  Boolean    @default(false)
 
-  findings Finding[]
-
   createdAt          DateTime            @default(now())
   findingOccurrences FindingOccurrence[]
 
@@ -467,8 +454,6 @@ model Assessment {
   completedAt DateTime?
   duration    Int? // seconds
 
-  /// Legacy per-scan findings. Superseded by `occurrences`; removed in Phase 1B.
-  findings           Finding[]
   occurrences        FindingOccurrence[]
   /// Triage transitions this scan caused. SetNull on the far side, so deleting
   /// the scan detaches the history rather than deleting it.
@@ -590,71 +575,11 @@ model AssessmentLog {
   @@map("assessment_logs")
 }
 
-// =============================================================================
-// FINDING — LEGACY, TRANSITIONAL
-//
-// Superseded by SecurityIssue + FindingOccurrence. Deliberately retained in the
-// Phase 1B baseline: 19 call sites across 8 files still write and read it
-// (scanner.processor, findings.service, plugins.service, reports, assessments,
-// projects). Replacing them IS the Phase 1C persistence rewrite, so dropping
-// this table now would force that rewrite into the wrong phase.
-//
-// Phase 1C repoints every one of those call sites at the new models and drops
-// this table and the FindingStatus enum in its own migration.
-//
-// Nothing new should read or write Finding.
-// =============================================================================
-
-model Finding {
-  id           String     @id @default(cuid())
-  assessmentId String
-  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  endpointId   String?
-  endpoint     Endpoint?  @relation(fields: [endpointId], references: [id], onDelete: SetNull)
-
-  // Classification
-  title         String
-  category      String
-  severity      Severity
-  cvssScore     Float?
-  cvssVector    String?
-  owaspCategory String // e.g. "API1:2023"
-  cweId         String? // e.g. "CWE-639"
-  pluginId      String
-
-  // Description
-  description String
-  impact      String?
-  likelihood  String?
-  riskScore   Float?
-
-  // Evidence
-  evidence     Json?
-  httpRequest  String?
-  httpResponse String?
-  affectedUrl  String?
-
-  // Remediation
-  remediation String?
-  references  String[]
-
-  // AI Analysis
-  aiSummary     String?
-  aiAnalysis    Json?
-  aiGeneratedAt DateTime?
-
-  // Status
-  status FindingStatus @default(OPEN)
-  notes  String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  /// Legacy reads: findings of one scan, and the assessment detail include.
-  /// Removed together with this model in Phase 1B.
-  @@index([assessmentId])
-  @@map("findings")
-}
+// Finding and FindingStatus were removed in Phase 1C.6, after every consumer
+// was migrated to SecurityIssue + FindingOccurrence. The model conflated a
+// per-scan detection with cross-scan triage state, so the same vulnerability
+// was re-inserted as a fresh OPEN row on every scan and deleting a scan
+// cascaded away the triage attached to it.
 
 // =============================================================================
 // PERSISTENT VULNERABILITY DOMAIN

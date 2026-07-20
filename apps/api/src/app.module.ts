@@ -11,7 +11,6 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { AssessmentsModule } from './modules/assessments/assessments.module';
-import { FindingsModule } from './modules/findings/findings.module';
 import { IssuesModule } from './modules/issues/issues.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { ScannerModule } from './modules/scanner/scanner.module';
@@ -74,7 +73,6 @@ import { AuditModule } from './modules/audit/audit.module';
     UsersModule,
     ProjectsModule,
     AssessmentsModule,
-    FindingsModule,
     IssuesModule,
     ReportsModule,
     ScannerModule,

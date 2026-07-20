@@ -91,7 +91,111 @@ export interface Endpoint {
 }
 
 export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
-export type FindingStatus = 'OPEN' | 'CONFIRMED' | 'FALSE_POSITIVE' | 'RESOLVED' | 'ACCEPTED_RISK';
+/**
+ * Triage state of a persistent vulnerability. Mirrors the Prisma IssueStatus
+ * enum. `ACKNOWLEDGED` replaced the old `CONFIRMED`.
+ */
+export type IssueStatus =
+  | 'OPEN'
+  | 'ACKNOWLEDGED'
+  | 'RESOLVED'
+  | 'ACCEPTED_RISK'
+  | 'FALSE_POSITIVE';
+
+/** Statuses whose transition must carry a reason, for the audit trail. */
+export const ISSUE_STATUSES_REQUIRING_REASON: IssueStatus[] = [
+  'RESOLVED',
+  'ACCEPTED_RISK',
+  'FALSE_POSITIVE',
+];
+
+/** A vulnerability that persists across scans. */
+export interface SecurityIssue {
+  id: string;
+  projectId: string;
+  fingerprint: string;
+  fingerprintVersion: string;
+  pluginId: string;
+  ruleId: string;
+  method: string;
+  normalizedRoute: string;
+  component: string;
+  title: string;
+  description: string;
+  severity: Severity;
+  owaspCategory: string;
+  cweId?: string | null;
+  cvssScore?: number | null;
+  status: IssueStatus;
+  notes?: string | null;
+  assigneeId?: string | null;
+  acceptedRiskUntil?: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt?: string | null;
+  reopenedAt?: string | null;
+  reopenCount: number;
+  occurrenceCount: number;
+  createdAt: string;
+  updatedAt: string;
+  project?: { id: string; name: string };
+  assignee?: { id: string; name: string; email: string } | null;
+  occurrences?: FindingOccurrence[];
+  statusChanges?: IssueStatusChange[];
+}
+
+/** One immutable detection of an issue by one scan. */
+export interface FindingOccurrence {
+  id: string;
+  issueId: string;
+  assessmentId: string;
+  endpointId?: string | null;
+  titleSnapshot: string;
+  descriptionSnapshot: string;
+  severitySnapshot: Severity;
+  owaspSnapshot: string;
+  cweSnapshot?: string | null;
+  cvssSnapshot?: number | null;
+  methodSnapshot: string;
+  pathSnapshot: string;
+  ruleIdSnapshot: string;
+  pluginIdSnapshot: string;
+  pluginVersionSnapshot: string;
+  impactSnapshot?: string | null;
+  remediationSnapshot?: string | null;
+  evidence?: unknown;
+  httpRequest?: string | null;
+  httpResponse?: string | null;
+  affectedUrl?: string | null;
+  location: string;
+  detectedAt: string;
+  assessment?: { id: string; createdAt: string; status: string };
+  issue?: Pick<SecurityIssue, 'id' | 'status' | 'firstSeenAt' | 'lastSeenAt' | 'occurrenceCount'>;
+}
+
+/** One entry in an issue's auditable triage history. */
+export interface IssueStatusChange {
+  id: string;
+  issueId: string;
+  fromStatus?: IssueStatus | null;
+  toStatus: IssueStatus;
+  actorId?: string | null;
+  assessmentId?: string | null;
+  reason?: string | null;
+  automatic: boolean;
+  acceptedRiskUntil?: string | null;
+  createdAt: string;
+  actor?: { id: string; name: string; email: string } | null;
+}
+
+/** Standard envelope for paginated list endpoints. */
+export interface Paginated<T> {
+  data: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
 export type AssessmentStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 export interface Assessment {
@@ -107,10 +211,11 @@ export interface Assessment {
   jobId?: string;
   config?: AssessmentConfig;
   summary?: AssessmentSummary;
-  findings?: Finding[];
+  /** Detections this scan produced, each linked to its persistent issue. */
+  occurrences?: FindingOccurrence[];
   reports?: Report[];
   logs?: AssessmentLog[];
-  _count?: { findings: number };
+  _count?: { occurrences: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -135,7 +240,21 @@ export interface AssessmentSummary {
   mediumCount: number;
   lowCount: number;
   infoCount: number;
-  securityScore: number;
+  /**
+   * Null when no score could be computed. Always read together with
+   * `scoreStatus`: a score without its status can misrepresent a partial or
+   * failed run as a real result.
+   */
+  securityScore: number | null;
+  scoreStatus: 'UNAVAILABLE' | 'PROVISIONAL' | 'FINAL';
+  scoreVersion?: string | null;
+  scoreComputedAt?: string | null;
+  plannedChecks?: number;
+  successfulChecks?: number;
+  failedChecks?: number;
+  skippedChecks?: number;
+  executionErrors?: number;
+  coveragePercent?: number | null;
   riskLevel: string;
   owaspCoverage?: Record<string, number>;
   /** Plugin execution plan — which ran, which were skipped, timing, finding counts */
@@ -147,6 +266,8 @@ export interface AssessmentSummary {
 export interface PluginExecutionPlan {
   available:     string[];
   executed:      string[];
+  /** Attempted but did not complete. Never treated as "ran successfully". */
+  failed:        string[];
   skipped:       string[];
   skippedReason: Record<string, string>;
   versions:      Record<string, string>;
@@ -222,36 +343,9 @@ export interface AiTestConnectionResult {
   model?:     string;
 }
 
-export interface Finding {
-  id: string;
-  assessmentId: string;
-  endpointId?: string;
-  assessment?: { id: string; project: { id: string; name: string } };
-  endpoint?: { path: string; method: string };
-  title: string;
-  category: string;
-  severity: Severity;
-  cvssScore?: number;
-  cvssVector?: string;
-  owaspCategory: string;
-  cweId?: string;
-  pluginId: string;
-  affectedUrl?: string;
-  description: string;
-  impact?: string;
-  likelihood?: string;
-  riskScore?: number;
-  evidence?: any;
-  httpRequest?: string;
-  httpResponse?: string;
-  remediation?: string;
-  references?: string[];
-  aiAnalysis?: any;
-  status: FindingStatus;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+// The legacy `Finding` interface was removed in Phase 1C. A detection is now
+// a `FindingOccurrence` and a vulnerability is a `SecurityIssue`; the old type
+// conflated the two, which is why the same problem appeared once per scan.
 
 export interface Report {
   id: string;
@@ -260,7 +354,7 @@ export interface Report {
     id: string;
     project: { id: string; name: string };
     summary?: AssessmentSummary;
-    findings?: Finding[];
+    occurrences?: FindingOccurrence[];
   };
   type: 'EXECUTIVE' | 'TECHNICAL' | 'COMPLIANCE' | 'DEVELOPER';
   format: 'PDF' | 'HTML' | 'MARKDOWN' | 'JSON' | 'SARIF';

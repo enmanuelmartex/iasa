@@ -32,8 +32,11 @@ export class ReportsService {
             id: true,
             project: { select: { id: true, name: true } },
             summary: true,
-            findings: {
-              orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
+            // Snapshots from the scan this report describes, so the report's
+            // content cannot drift as issues are later re-triaged or reworded.
+            occurrences: {
+              orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
+              include: { issue: { select: { id: true, status: true } } },
             },
           },
         },

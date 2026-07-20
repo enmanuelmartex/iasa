@@ -31,13 +31,17 @@ export class ProjectsService {
           include: { authConfig: true },
         },
         _count: {
-          select: { assessments: true },
+          select: {
+            assessments: true,
+            // Open issues now hang off the project directly, so the count is a
+            // single indexed query rather than a sum over every scan.
+            securityIssues: { where: { status: { in: ['OPEN', 'ACKNOWLEDGED', 'ACCEPTED_RISK'] } } },
+          },
         },
-        // Findings hang off assessments, so the listing metrics are derived here
-        // rather than counted per project. Narrow select: status + findings count.
         assessments: {
           orderBy: { createdAt: 'desc' },
-          select: { status: true, _count: { select: { findings: true } } },
+          take: 1,
+          select: { status: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -45,8 +49,10 @@ export class ProjectsService {
 
     return projects.map(({ assessments, ...project }) => ({
       ...this.toProjectResponse(project),
-      // Total findings across every scan of the project, and the newest scan's status.
-      findingsCount: assessments.reduce((total, a) => total + a._count.findings, 0),
+      // Vulnerabilities currently open on this project — not the number of
+      // times they have been detected. Previously this summed findings across
+      // every scan, so rescanning an unchanged API inflated the number.
+      openIssuesCount: project._count.securityIssues,
       lastScanStatus: assessments[0]?.status ?? null,
     }));
   }

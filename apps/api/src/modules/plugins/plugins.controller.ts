@@ -70,10 +70,10 @@ export class PluginsController {
     return this.pluginsService.getExecutionHistory(id, req.user.id);
   }
 
-  // GET /plugins/:id/findings — historical findings from this plugin
-  @Get(':id/findings')
-  getFindings(@Param('id') id: string, @Request() req: any) {
-    return this.pluginsService.getFindings(id, req.user.id);
+  // GET /plugins/:id/issues — persistent issues detected by this check
+  @Get(':id/issues')
+  getIssues(@Param('id') id: string, @Request() req: any) {
+    return this.pluginsService.getIssues(id, req.user.id);
   }
 
   // POST /plugins/:id/run — run single plugin against a project

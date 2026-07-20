@@ -16,20 +16,64 @@ const SEVERITY_COLOR: Record<string, string> = {
 export class ReportGeneratorService {
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Loads the data a report renders.
+   *
+   * Reports are built from the scan's OCCURRENCES, using the snapshot columns
+   * captured at detection time. That is what makes a historical report
+   * reproducible: re-importing a specification, rewording a check or retuning a
+   * severity cannot retroactively alter a report that was already issued.
+   *
+   * Occurrences are projected onto the field names the renderers already use,
+   * so the templates stay untouched, and each carries its persistent issue id
+   * so a reader can navigate from a report entry to the live issue.
+   */
   async getAssessmentData(assessmentId: string, userId: string) {
     const assessment = await this.prisma.assessment.findFirst({
       where: { id: assessmentId, project: { userId } },
       include: {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
         summary: true,
-        findings: {
-          orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
-          include: { endpoint: { select: { path: true, method: true } } },
+        occurrences: {
+          orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
+          include: {
+            endpoint: { select: { path: true, method: true } },
+            issue: { select: { id: true, status: true, firstSeenAt: true, occurrenceCount: true } },
+          },
         },
       },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
-    return assessment;
+
+    return {
+      ...assessment,
+      findings: assessment.occurrences.map((occurrence) => ({
+        id: occurrence.id,
+        issueId: occurrence.issueId,
+        issueStatus: occurrence.issue?.status ?? null,
+        firstSeenAt: occurrence.issue?.firstSeenAt ?? occurrence.detectedAt,
+        occurrenceCount: occurrence.issue?.occurrenceCount ?? 1,
+
+        title: occurrence.titleSnapshot,
+        description: occurrence.descriptionSnapshot,
+        severity: occurrence.severitySnapshot,
+        cvssScore: occurrence.cvssSnapshot,
+        owaspCategory: occurrence.owaspSnapshot,
+        cweId: occurrence.cweSnapshot,
+        pluginId: occurrence.pluginIdSnapshot,
+        ruleId: occurrence.ruleIdSnapshot,
+        impact: occurrence.impactSnapshot,
+        remediation: occurrence.remediationSnapshot,
+        category: occurrence.location,
+        affectedUrl: occurrence.affectedUrl,
+        evidence: occurrence.evidence,
+        createdAt: occurrence.detectedAt,
+        endpoint:
+          occurrence.endpoint ??
+          { path: occurrence.pathSnapshot, method: occurrence.methodSnapshot },
+        references: [] as string[],
+      })),
+    };
   }
 
   generateJson(assessment: any): string {

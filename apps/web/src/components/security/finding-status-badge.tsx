@@ -2,6 +2,9 @@ import { cn } from '@/lib/utils';
 
 const STATUS_META: Record<string, { className: string; dot: string }> = {
   OPEN: { className: 'bg-destructive/10 text-destructive border-destructive/20', dot: 'bg-destructive' },
+  // Replaced CONFIRMED when the persistent issue model landed. CONFIRMED is
+  // kept so historical values rendered from cached data still resolve.
+  ACKNOWLEDGED: { className: 'bg-severity-high/10 text-severity-high border-severity-high/20', dot: 'bg-severity-high' },
   CONFIRMED: { className: 'bg-severity-high/10 text-severity-high border-severity-high/20', dot: 'bg-severity-high' },
   FALSE_POSITIVE: { className: 'bg-muted text-muted-foreground border-border', dot: 'bg-muted-foreground' },
   RESOLVED: { className: 'bg-success/10 text-success border-success/20', dot: 'bg-success' },

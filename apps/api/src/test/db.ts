@@ -66,7 +66,6 @@ export async function resetTestDatabase(prisma: PrismaClient): Promise<void> {
       issue_status_changes,
       finding_occurrences,
       security_issues,
-      findings,
       assessment_summaries,
       assessment_configs,
       assessment_logs,
