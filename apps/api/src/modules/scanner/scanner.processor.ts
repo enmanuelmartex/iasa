@@ -10,6 +10,7 @@ import { createHash } from 'crypto';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { decryptAuthFields } from '../../common/crypto/auth-config.crypto';
 import { IssueLifecycleService } from '../issues/issue-lifecycle.service';
+import { ScoringService } from '../scoring/scoring.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { ReportGeneratorService } from '../reports/report-generator.service';
 import { ReportsService } from '../reports/reports.service';
@@ -34,6 +35,7 @@ export class ScannerProcessor extends WorkerHost {
     private reportsService:   ReportsService,
     private crypto:           CryptoService,
     private issueLifecycle:   IssueLifecycleService,
+    private scoring:          ScoringService,
   ) {
     super();
   }
@@ -235,16 +237,9 @@ export class ScannerProcessor extends WorkerHost {
       const successfulChecks = plannedChecks - failedChecks;
       const skippedChecks    = pluginPlan.skipped.length;
 
-      // A score is only trustworthy when every planned check actually ran.
-      // UNAVAILABLE keeps securityScore null rather than letting a partial or
-      // empty run present itself as a result.
-      const scoreStatus =
-        successfulChecks === 0
-          ? 'UNAVAILABLE'
-          : failedChecks > 0
-            ? 'PROVISIONAL'
-            : 'FINAL';
-
+      // Counts and execution scope only. The score itself is computed by
+      // ScoringService below, from the persisted occurrences — there is exactly
+      // one scoring implementation and the processor is not it.
       await this.prisma.assessmentSummary.update({
         where: { assessmentId },
         data: {
@@ -255,18 +250,11 @@ export class ScannerProcessor extends WorkerHost {
           mediumCount:     summary.medium,
           lowCount:        summary.low,
           infoCount:       summary.info,
-          securityScore:   scoreStatus === 'UNAVAILABLE' ? null : summary.score,
-          scoreStatus:     scoreStatus as any,
-          scoreVersion:    scoreStatus === 'UNAVAILABLE' ? null : 'score-v0-legacy',
-          scoreComputedAt: scoreStatus === 'UNAVAILABLE' ? null : new Date(),
           plannedChecks,
           successfulChecks,
           failedChecks,
           skippedChecks,
           executionErrors: failedChecks,
-          coveragePercent: plannedChecks > 0
-            ? Math.round((successfulChecks / plannedChecks) * 1000) / 10
-            : null,
           riskLevel:       summary.riskLevel,
           owaspCoverage:   summary.owaspCoverage,
           pluginResults:   pluginPlan as any,
@@ -286,6 +274,20 @@ export class ScannerProcessor extends WorkerHost {
           currentStep: 'Completed',
         },
       });
+
+      // Scored after the status is COMPLETED, because the engine refuses to
+      // score a non-terminal assessment. Derived entirely from persisted data,
+      // so a retry recomputes the same snapshot rather than drifting.
+      const score = await this.scoring.scoreAssessment(assessmentId);
+      await this.addLog(
+        assessmentId,
+        'info',
+        'core',
+        score.securityScore === null
+          ? `Score unavailable: ${score.reasons.join(' ')}`
+          : `Score ${score.securityScore}/100 (${score.scoreStatus}, ${score.scoreVersion}) — ` +
+            `coverage ${score.coveragePercent ?? 'unknown'}%`,
+      );
 
       // PDF is the canonical automatic artifact; other formats remain on-demand exports.
       this.autoGenerateReport(assessmentId, userId).catch((err) =>

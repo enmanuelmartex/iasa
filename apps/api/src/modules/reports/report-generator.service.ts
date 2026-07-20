@@ -251,8 +251,24 @@ export class ReportGeneratorService {
     const date = new Date().toLocaleDateString('en-US', {
       year: 'numeric', month: 'long', day: 'numeric',
     });
-    const score = summary?.securityScore ?? 100;
-    const scoreColor = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : score >= 40 ? '#f97316' : '#ef4444';
+    // Read from the stored snapshot, never recomputed. `?? 100` here previously
+    // printed a perfect score on a report for a scan that produced none.
+    const score = summary?.securityScore ?? null;
+    const scoreStatus = summary?.scoreStatus ?? 'UNAVAILABLE';
+    const scoreLabel = score === null ? 'Unavailable' : `${score}/100`;
+    const scoreColor =
+      score === null
+        ? '#6b7280'
+        : score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : score >= 40 ? '#f97316' : '#ef4444';
+
+    // A report built from an incomplete scan must say so on its face.
+    const scoreCaveat =
+      scoreStatus === 'FINAL'
+        ? ''
+        : scoreStatus === 'PROVISIONAL'
+          ? `Provisional — ${summary?.successfulChecks ?? 0} of ${summary?.plannedChecks ?? 0} checks completed` +
+            (summary?.coveragePercent != null ? ` (${summary.coveragePercent}% coverage)` : '')
+          : 'No score could be computed for this scan';
 
     const sorted = [...findings].sort(
       (a: any, b: any) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9),
@@ -343,11 +359,12 @@ export class ReportGeneratorService {
     <div>
       <h1>Security Assessment Report</h1>
       <p>${esc(project.name)} &nbsp;·&nbsp; ${esc(project.baseUrl ?? '')} &nbsp;·&nbsp; ${date}</p>
-      <p style="margin-top:6px">Report type: <strong>${type}</strong> &nbsp;·&nbsp; Risk: <strong style="color:${scoreColor}">${summary?.riskLevel ?? 'N/A'}</strong></p>
+      <p style="margin-top:6px">Report type: <strong>${type}</strong> &nbsp;·&nbsp; Risk: <strong style="color:${scoreColor}">${summary?.riskLevel ?? 'Unknown'}</strong></p>
+      ${scoreCaveat ? `<p style="margin-top:6px;color:#f97316"><strong>${scoreCaveat}</strong></p>` : ''}
     </div>
     <div class="score-circle">
-      <span class="score-num">${score}</span>
-      <span class="score-label">Score</span>
+      <span class="score-num">${score === null ? '—' : score}</span>
+      <span class="score-label">${score === null ? 'No score' : 'Score'}</span>
     </div>
   </div>
 

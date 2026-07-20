@@ -2,13 +2,11 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { IconBug } from '@tabler/icons-react';
-import { toast } from 'sonner';
 import { issuesApi } from '@/lib/api';
 import type { IssueStatus, Paginated, SecurityIssue, Severity } from '@/types';
-import { ISSUE_STATUSES_REQUIRING_REASON } from '@/types';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable } from '@/components/tables/data-table';
@@ -34,7 +32,6 @@ export default function IssuesPage() {
   const [severity, setSeverity] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
-  const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery<Paginated<SecurityIssue>>({
     queryKey: ['issues', severity, status, page],
@@ -46,25 +43,6 @@ export default function IssuesPage() {
       }),
   });
 
-  const mutation = useMutation({
-    mutationFn: ({ id, next }: { id: string; next: IssueStatus }) => {
-      // Discarding or deferring risk must be justified, and the API enforces
-      // it. Phase 5 replaces this prompt with a proper triage sheet.
-      let reason: string | undefined;
-      if (ISSUE_STATUSES_REQUIRING_REASON.includes(next)) {
-        const entered = window.prompt(`Why are you marking this issue as ${next.replace(/_/g, ' ').toLowerCase()}?`);
-        if (!entered?.trim()) throw new Error('A reason is required for this decision.');
-        reason = entered.trim();
-      }
-      return issuesApi.updateStatus(id, { status: next, reason });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['issues'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success('Issue updated');
-    },
-    onError: (error: Error) => toast.error(error.message || 'Could not update the issue'),
-  });
 
   const columns = useMemo<ColumnDef<SecurityIssue>[]>(
     () => [

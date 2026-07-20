@@ -11,6 +11,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { concat, Observable, of, Subject } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
+import { ScoringService } from '../scoring/scoring.service';
 import { RunAssessmentDto } from './dto/run-assessment.dto';
 
 @Injectable()
@@ -23,6 +24,7 @@ export class AssessmentsService {
     @InjectQueue('scanner') private scannerQueue: Queue,
     private eventEmitter: EventEmitter2,
     private pluginRegistry: PluginRegistryService,
+    private scoring: ScoringService,
   ) {
     this.eventEmitter.on('scanner.progress', (data) => {
       this.emitProgress(data.assessmentId, data);
@@ -240,7 +242,9 @@ export class AssessmentsService {
   }
 
   async getDashboardStats(userId: string) {
-    const [projects, assessments, findings] = await Promise.all([
+    const [projects, totalAssessmentCount, assessments, findings] = await Promise.all([
+      // Real total, separate from the recent-scans window below.
+      this.prisma.assessment.count({ where: { project: { userId } } }),
       this.prisma.project.count({ where: { userId, isActive: true } }),
       this.prisma.assessment.findMany({
         where: { project: { userId }, status: 'COMPLETED' },
@@ -274,16 +278,34 @@ export class AssessmentsService {
       {} as Record<string, number>,
     );
 
-    const avgScore =
-      assessments.length > 0
-        ? assessments.reduce((sum, a) => sum + (a.summary?.securityScore ?? 100), 0) /
-          assessments.length
-        : 100;
+    // Global posture: one score per PROJECT, from that project's most recent
+    // scorable scan — not an average over the last N scans.
+    //
+    // The previous implementation averaged the last 10 completed assessments
+    // with a `?? 100` fallback, so a project scanned ten times drowned out every
+    // other project, a scan with no summary counted as perfect, and a user with
+    // no scans at all saw 100/100. Unassessed is now `null`, never 100.
+    const postures = await Promise.all(
+      (await this.prisma.project.findMany({
+        where: { userId, isActive: true },
+        select: { id: true },
+      })).map((project) => this.scoring.getProjectPosture(project.id)),
+    );
+
+    const scored = postures
+      .map((posture) => posture.currentSecurityScore)
+      .filter((score): score is number => typeof score === 'number');
 
     return {
       totalProjects: projects,
-      totalAssessments: assessments.length,
-      avgSecurityScore: Math.round(avgScore),
+      // The real total, not the size of the recent window.
+      totalAssessments: totalAssessmentCount,
+      avgSecurityScore:
+        scored.length > 0
+          ? Math.round(scored.reduce((sum, score) => sum + score, 0) / scored.length)
+          : null,
+      scoredProjects: scored.length,
+      unassessedProjects: postures.length - scored.length,
       findings: findingsBySeverity,
       recentAssessments: assessments.slice(0, 5),
     };

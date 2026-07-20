@@ -384,7 +384,10 @@ export interface ReportStats {
   highCount: number;
   mediumCount: number;
   lowCount: number;
-  avgSecurityScore: number;
+  /** Null when no project has a computable score. Never substitute 0 or 100. */
+  avgSecurityScore: number | null;
+  scoredProjects?: number;
+  unassessedProjects?: number;
   avgDuration: number;
   trend: ReportTrendPoint[];
 }
@@ -400,7 +403,10 @@ export interface AssessmentLog {
 export interface DashboardStats {
   totalProjects: number;
   totalAssessments: number;
-  avgSecurityScore: number;
+  /** Null when no project has a computable score. Never substitute 0 or 100. */
+  avgSecurityScore: number | null;
+  scoredProjects?: number;
+  unassessedProjects?: number;
   findings: Record<string, number>;
   recentAssessments: Assessment[];
 }

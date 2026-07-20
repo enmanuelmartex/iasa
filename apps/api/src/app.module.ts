@@ -12,6 +12,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { AssessmentsModule } from './modules/assessments/assessments.module';
 import { IssuesModule } from './modules/issues/issues.module';
+import { ScoringModule } from './modules/scoring/scoring.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { ScannerModule } from './modules/scanner/scanner.module';
 import { PluginsModule } from './modules/plugins/plugins.module';
@@ -74,6 +75,7 @@ import { AuditModule } from './modules/audit/audit.module';
     ProjectsModule,
     AssessmentsModule,
     IssuesModule,
+    ScoringModule,
     ReportsModule,
     ScannerModule,
     PluginsModule,

@@ -246,3 +246,26 @@ export const reportsApi = {
 // surfaced under Settings → AI Usage in Phase 8, once usage is actually
 // persisted in a queryable form. The Finance* types in `@/types` are kept for
 // that work.
+
+/**
+ * Scores, posture and comparison.
+ *
+ * A score is always read together with its status: `UNAVAILABLE` means no
+ * score exists (never 0 or 100), `PROVISIONAL` means the scan did not complete
+ * every planned check, `FINAL` means it did.
+ */
+export const scoringApi = {
+  assessmentScore: (assessmentId: string) =>
+    api.get(`/assessments/${assessmentId}/score`).then((r) => r.data),
+
+  projectPosture: (projectId: string) =>
+    api.get(`/projects/${projectId}/posture`).then((r) => r.data),
+
+  compare: (assessmentId: string, baseline?: string) =>
+    api
+      .get(`/assessments/${assessmentId}/comparison`, { params: baseline ? { baseline } : {} })
+      .then((r) => r.data),
+
+  comparisonCandidates: (assessmentId: string) =>
+    api.get(`/assessments/${assessmentId}/comparison/candidates`).then((r) => r.data),
+};
