@@ -24,10 +24,6 @@ const IDS = {
   adminUser: 'seed-user-admin',
   analystUser: 'seed-user-analyst',
   demoProject: 'seed-project-petstore',
-  profileQuick: 'seed-profile-quick-scan',
-  profileAuthz: 'seed-profile-auth-authz',
-  profileOwasp: 'seed-profile-owasp-top10',
-  profilePassive: 'seed-profile-passive',
 } as const;
 
 /**
@@ -101,43 +97,11 @@ const DEMO_ENDPOINTS = [
   { path: '/user/login', method: 'GET' as const, operationId: 'loginUser', summary: 'Log user into the system', tags: ['user'] },
 ];
 
-/**
- * System scan profiles. Plugin ids match the built-in registry
- * (apps/api/src/modules/plugins/plugin-registry.service.ts).
- */
-const SYSTEM_PROFILES = [
-  {
-    id: IDS.profileQuick,
-    name: 'Quick Scan',
-    description: 'Fast passive checks with no mutating requests. Good for a first look.',
-    icon: 'bolt',
-    enabledPlugins: ['security-headers', 'cors'],
-  },
-  {
-    id: IDS.profileAuthz,
-    name: 'Authentication & Authorization',
-    description: 'Focused on broken authentication and access-control flaws.',
-    icon: 'lock',
-    enabledPlugins: ['broken-authentication', 'jwt-analysis', 'bola', 'bfla'],
-  },
-  {
-    id: IDS.profileOwasp,
-    name: 'OWASP API Top 10',
-    description: 'Every built-in check, covering the OWASP API Security Top 10 categories IASA implements.',
-    icon: 'shield',
-    enabledPlugins: [
-      'security-headers', 'cors', 'broken-authentication', 'jwt-analysis',
-      'bola', 'bfla', 'mass-assignment', 'rate-limit', 'sensitive-data', 'ssrf',
-    ],
-  },
-  {
-    id: IDS.profilePassive,
-    name: 'Passive Checks Only',
-    description: 'Read-only analysis. Sends no mutating requests and no rate-limit probing.',
-    icon: 'eye',
-    enabledPlugins: ['security-headers', 'cors', 'sensitive-data'],
-  },
-];
+// System scan profiles are NOT seeded here. ProfilesService.onModuleInit already
+// upserts them from its own SYSTEM_PROFILES list on every boot, the same pattern
+// the plugin registry uses. Seeding them here as well created a second source of
+// truth and produced duplicate names in the UI ("Quick Scan" twice, "OWASP API
+// Top 10" twice) because the two lists used different ids.
 
 async function seedUsers() {
   // Local development credentials only — see the file header.
@@ -265,41 +229,15 @@ async function seedDemoProject(ownerId: string) {
   return { project, apiSpec };
 }
 
-async function seedSystemProfiles() {
-  for (const profile of SYSTEM_PROFILES) {
-    await prisma.scanProfile.upsert({
-      where: { id: profile.id },
-      update: {
-        name: profile.name,
-        description: profile.description,
-        icon: profile.icon,
-        enabledPlugins: profile.enabledPlugins,
-        isSystem: true,
-      },
-      create: {
-        id: profile.id,
-        name: profile.name,
-        description: profile.description,
-        icon: profile.icon,
-        enabledPlugins: profile.enabledPlugins,
-        isSystem: true,
-        userId: null,
-      },
-    });
-  }
-  return SYSTEM_PROFILES.length;
-}
 
 async function main() {
   console.log('Seeding IASA database...');
 
   const { admin, analyst } = await seedUsers();
   const { project } = await seedDemoProject(analyst.id);
-  const profileCount = await seedSystemProfiles();
 
   console.log(`  users            ${admin.email}, ${analyst.email}`);
   console.log(`  demo project     ${project.name} (READY, ${DEMO_ENDPOINTS.length} endpoints)`);
-  console.log(`  system profiles  ${profileCount}`);
   console.log('');
   console.log('Development credentials (local only):');
   console.log('  admin@iasa.local   / Admin@123!');
