@@ -400,6 +400,27 @@ export interface AssessmentLog {
   timestamp: string;
 }
 
+/** One calendar month (Jan–Dec of the current year) in the dashboard's security-score evolution. */
+export interface ScoreTrendPoint {
+  /** Calendar month key, `YYYY-MM`. */
+  month: string;
+  /** Average security score of the assessments completed that month; `null` when none produced a score (distinct from a real 0). */
+  averageScore: number | null;
+  /** Number of assessments completed in that month. */
+  completedCount: number;
+}
+
+/** One 7-day bucket in the dashboard's eight-week findings-by-severity trend. */
+export interface WeeklyFindingsPoint {
+  /** ISO date marking the start of the 7-day bucket. */
+  weekStart: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+}
+
 export interface DashboardStats {
   totalProjects: number;
   totalAssessments: number;
@@ -409,6 +430,14 @@ export interface DashboardStats {
   unassessedProjects?: number;
   findings: Record<string, number>;
   recentAssessments: Assessment[];
+  /** Current calendar year (Jan–Dec) evolution of the average security score. */
+  scoreTrend: ScoreTrendPoint[];
+  /** Mean score across every scored assessment completed this calendar year; null when none. */
+  scoreTrendAverage: number | null;
+  /** Eight consecutive 7-day buckets of findings split by severity, oldest first. */
+  findingsTrend: WeeklyFindingsPoint[];
+  /** Total detections in the eight weeks immediately before the visible window. */
+  findingsTrendPreviousTotal: number;
 }
 
 // =============================================================================

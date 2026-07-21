@@ -308,6 +308,126 @@ export class AssessmentsService {
       unassessedProjects: postures.length - scored.length,
       findings: findingsBySeverity,
       recentAssessments: assessments.slice(0, 5),
+      ...(await this.getScoreTrend(userId)),
+      ...(await this.getFindingsTrend(userId)),
+    };
+  }
+
+  /**
+   * Weekly findings trend for the "Findings by Severity" area chart: eight
+   * consecutive 7-day buckets ending today, each split by severity, plus the
+   * total of the eight weeks immediately before the window so the card can show
+   * a period-over-period comparison badge.
+   *
+   * Counts real detections (`FindingOccurrence`) by `detectedAt`, scoped to the
+   * user's active projects — the same scope as the current findings totals. No
+   * mock data: a week with no detections stays at zero.
+   */
+  private async getFindingsTrend(userId: string) {
+    const WEEKS = 8;
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    const now = new Date();
+    // Exclusive upper bound at the end of today keeps bucket edges stable within
+    // a day and includes everything detected so far today.
+    const windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const windowStart = new Date(windowEnd.getTime() - WEEKS * WEEK_MS);
+    const previousStart = new Date(windowEnd.getTime() - 2 * WEEKS * WEEK_MS);
+
+    const occurrences = await this.prisma.findingOccurrence.findMany({
+      where: {
+        issue: { project: { userId, isActive: true } },
+        detectedAt: { gte: previousStart, lt: windowEnd },
+      },
+      select: { detectedAt: true, severitySnapshot: true },
+    });
+
+    const weeks = Array.from({ length: WEEKS }, (_, index) => ({
+      weekStart: new Date(windowStart.getTime() + index * WEEK_MS).toISOString(),
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      info: 0,
+    }));
+
+    let findingsTrendPreviousTotal = 0;
+    for (const occurrence of occurrences) {
+      const time = new Date(occurrence.detectedAt).getTime();
+      if (time < windowStart.getTime()) {
+        findingsTrendPreviousTotal += 1;
+        continue;
+      }
+      const index = Math.floor((time - windowStart.getTime()) / WEEK_MS);
+      if (index < 0 || index >= WEEKS) continue;
+      const key = occurrence.severitySnapshot.toLowerCase();
+      if (key === 'critical' || key === 'high' || key === 'medium' || key === 'low' || key === 'info') {
+        weeks[index][key] += 1;
+      }
+    }
+
+    return { findingsTrend: weeks, findingsTrendPreviousTotal };
+  }
+
+  /**
+   * Security-score evolution across the CURRENT calendar year — Jan through Dec,
+   * always in that order, one bucket per month. The year is read from the clock,
+   * so the chart rolls over to the new year automatically on Jan 1 (never
+   * hardcoded).
+   *
+   * Each bucket carries the average `securityScore` of the assessments COMPLETED
+   * that month and how many completed. Real data only: a month with no scored
+   * assessment returns `averageScore: null` — never 0 — because a real 0 is the
+   * worst possible posture and must stay distinct from "no information". Future
+   * months of the current year are naturally empty (null) as no scan has run yet.
+   *
+   * `scoreTrendAverage` is the mean score across every scored assessment
+   * completed this year — the same period the chart represents.
+   */
+  private async getScoreTrend(userId: string) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const yearStart = new Date(year, 0, 1);
+    const yearEnd = new Date(year + 1, 0, 1);
+
+    const months = Array.from({ length: 12 }, (_, monthIndex) => ({
+      key: `${year}-${String(monthIndex + 1).padStart(2, '0')}`,
+      scoreSum: 0,
+      scoreCount: 0,
+      completedCount: 0,
+    }));
+
+    const completed = await this.prisma.assessment.findMany({
+      where: {
+        project: { userId },
+        status: 'COMPLETED',
+        completedAt: { gte: yearStart, lt: yearEnd },
+      },
+      select: { completedAt: true, summary: { select: { securityScore: true } } },
+    });
+
+    let yearScoreSum = 0;
+    let yearScoreCount = 0;
+    for (const assessment of completed) {
+      if (!assessment.completedAt) continue;
+      const bucket = months[new Date(assessment.completedAt).getMonth()];
+      if (!bucket) continue;
+      bucket.completedCount += 1;
+      const score = assessment.summary?.securityScore;
+      if (typeof score === 'number') {
+        bucket.scoreSum += score;
+        bucket.scoreCount += 1;
+        yearScoreSum += score;
+        yearScoreCount += 1;
+      }
+    }
+
+    return {
+      scoreTrend: months.map((month) => ({
+        month: month.key,
+        averageScore: month.scoreCount > 0 ? Math.round(month.scoreSum / month.scoreCount) : null,
+        completedCount: month.completedCount,
+      })),
+      scoreTrendAverage: yearScoreCount > 0 ? Math.round(yearScoreSum / yearScoreCount) : null,
     };
   }
 }

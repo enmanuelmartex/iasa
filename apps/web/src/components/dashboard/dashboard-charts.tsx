@@ -1,11 +1,26 @@
 'use client';
 
-import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, RadialBar, RadialBarChart } from 'recharts';
-import { IconShieldCheck } from '@tabler/icons-react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { useId } from 'react';
+import {
+  Bar,
+  BarChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  RadialBar,
+  RadialBarChart,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { IconMinus, IconShieldCheck, IconTrendingDown, IconTrendingUp } from '@tabler/icons-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useChartColors } from '@/lib/use-chart-colors';
+import { cn } from '@/lib/utils';
+import type { ScoreTrendPoint, WeeklyFindingsPoint } from '@/types';
 
 export const OWASP_CATEGORIES = [
   { id: 'API1:2023', label: 'API1', fullName: 'Broken Object Level Authorization' },
@@ -28,202 +43,380 @@ export function getScoreEvaluation(score: number) {
   return 'Critical';
 }
 
-export function SecurityScoreChart({ score, hasData }: { score: number; hasData: boolean }) {
-  const maximumScore = 100;
-  const securityScore = Math.min(maximumScore, Math.max(0, Number.isFinite(score) ? score : 0));
-  const percentage = Math.round((securityScore / maximumScore) * 100);
-  const chartData = [{ securityScore }];
-  const config = {
-    securityScore: { label: 'Overall Security Score', color: '#638cff' },
-  } satisfies ChartConfig;
+// =============================================================================
+// SHARED — trend comparison badge
+// =============================================================================
+
+function formatPercent(value: number) {
+  return value === 0 ? '0%' : `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
+}
+
+/**
+ * Period-over-period pill. The arrow always follows the direction of change; the
+ * colour follows meaning. `invert` flips the semantics for metrics where "up is
+ * bad" — more findings is a worse result, so an increase must read as negative.
+ */
+function TrendPill({ percent, invert = false, title = 'Compared with previous period' }: { percent: number | null; invert?: boolean; title?: string }) {
+  if (percent === null) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground" title={title}>
+        <IconMinus className="h-3 w-3" aria-hidden="true" />
+        No comparison
+      </span>
+    );
+  }
+  const up = percent > 0;
+  const down = percent < 0;
+  const Icon = up ? IconTrendingUp : down ? IconTrendingDown : IconMinus;
+  const good = (up && !invert) || (down && invert);
+  const bad = (up && invert) || (down && !invert);
+  const tone = good ? 'bg-emerald-500/15 text-emerald-400' : bad ? 'bg-red-500/15 text-red-400' : 'bg-muted text-muted-foreground';
+  return (
+    <span className={cn('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium tabular-nums', tone)} title={title}>
+      <Icon className="h-3 w-3" aria-hidden="true" />
+      {formatPercent(percent)}
+    </span>
+  );
+}
+
+// =============================================================================
+// OVERALL SECURITY SCORE — current calendar year (Jan–Dec)
+// =============================================================================
+
+const MAX_SCORE = 100;
+const SCORE_BAR_GRADIENT_ID = 'security-score-bar-gradient';
+
+type ScoreChartDatum = {
+  month: string;
+  label: string;
+  fullLabel: string;
+  averageScore: number | null;
+  completedCount: number;
+};
+
+type GradientBarShapeProps = {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  fill?: string;
+  radius?: number;
+  opacity?: number;
+};
+
+function formatMonth(monthKey: string) {
+  const [year, month] = monthKey.split('-').map(Number);
+  const date = new Date(year || new Date().getFullYear(), (month || 1) - 1, 1);
+  return {
+    short: date.toLocaleString('en-US', { month: 'short' }),
+    long: date.toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+  };
+}
+
+/**
+ * Bar renderer for the security-score trend: a rounded-top rectangle filled with
+ * the shared vertical purple→blue gradient (`CustomGradientBar`). Recharts skips
+ * null-valued months, so future/empty months render no bar at all.
+ */
+function CustomGradientBar({ x, y, width, height, fill, radius = 6, opacity = 1 }: GradientBarShapeProps) {
+  if (x == null || y == null || width == null || height == null || height <= 0) return null;
+  const r = Math.min(radius, width / 2, height);
+  const path = `M${x},${y + height} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + width - r},${y} Q${x + width},${y} ${x + width},${y + r} L${x + width},${y + height} Z`;
+  return <path d={path} fill={fill ?? `url(#${SCORE_BAR_GRADIENT_ID})`} opacity={opacity} />;
+}
+
+function computeYearTrend(points: ScoreChartDatum[]): number | null {
+  const scored = points.filter((point): point is ScoreChartDatum & { averageScore: number } => point.averageScore !== null);
+  if (scored.length < 2) return null;
+  const current = scored[scored.length - 1].averageScore;
+  const previous = scored[scored.length - 2].averageScore;
+  return previous !== 0 ? ((current - previous) / previous) * 100 : null;
+}
+
+export function SecurityScoreChart({ trend, yearAverage }: { trend: ScoreTrendPoint[]; yearAverage: number | null }) {
+  const year = new Date().getFullYear();
+  const overall = yearAverage === null ? null : Math.min(MAX_SCORE, Math.max(0, yearAverage));
+  const chartData: ScoreChartDatum[] = trend.map((point) => {
+    const label = formatMonth(point.month);
+    return {
+      month: point.month,
+      label: label.short,
+      fullLabel: label.long,
+      averageScore: point.averageScore === null ? null : Math.min(MAX_SCORE, Math.max(0, Math.round(point.averageScore))),
+      completedCount: point.completedCount,
+    };
+  });
+  const hasAnyData = chartData.some((point) => point.averageScore !== null);
+  const yearTrend = computeYearTrend(chartData);
+  const config = { averageScore: { label: 'Average Security Score', color: '#638cff' } } satisfies ChartConfig;
 
   return (
-    <Card className="flex h-full flex-col shadow-none">
-      <CardHeader>
-        <CardTitle>Overall Security Score</CardTitle>
-        <CardDescription>Average security posture across completed assessments</CardDescription>
-      </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 items-center justify-center px-4 py-5 sm:px-6 sm:py-6">
-        {hasData ? (
-          <div className="relative flex aspect-square w-full max-w-[15rem] shrink-0 items-center justify-center">
-            <div aria-hidden="true" className="absolute aspect-square w-[80%] rounded-full bg-black" />
-            <ChartContainer
-              config={config}
-              className="relative z-10 aspect-square h-auto w-full max-w-full"
-              role="img"
-              aria-label={`Overall security score: ${securityScore} out of ${maximumScore}.`}
-            >
-              <RadialBarChart
-                data={chartData}
-                startAngle={90}
-                endAngle={-270}
-                innerRadius="80%"
-                outerRadius="90%"
-                barSize={9}
-              >
-                <defs>
-                  <linearGradient id="security-score-gradient" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#7c5cff" />
-                    <stop offset="45%" stopColor="#638cff" />
-                    <stop offset="100%" stopColor="#62d6ff" />
-                  </linearGradient>
-                </defs>
-                <PolarAngleAxis type="number" domain={[0, maximumScore]} tick={false} axisLine={false} />
-                <RadialBar
-                  dataKey="securityScore"
-                  fill="url(#security-score-gradient)"
-                  background={{ fill: 'rgba(255, 255, 255, 0.08)' }}
-                  cornerRadius={999}
-                  isAnimationActive
-                  animationDuration={650}
-                  animationEasing="ease-out"
-                />
-                <ChartTooltip
-                  cursor={false}
-                  offset={18}
-                  wrapperStyle={{ zIndex: 30, pointerEvents: 'none' }}
-                  content={(
-                    <ChartTooltipContent
-                      hideLabel
-                      hideIndicator
-                      className="min-w-44 border-white/10 bg-popover/95 px-3 py-2.5 backdrop-blur-sm"
-                      formatter={() => (
-                        <div className="grid gap-1">
-                          <span className="font-medium text-foreground">Overall Security Score</span>
-                          <span className="text-base font-semibold tabular-nums text-foreground">
-                            {securityScore} <span className="text-sm font-medium text-muted-foreground">/ {maximumScore}</span>
-                          </span>
-                          <span className="text-muted-foreground">{percentage}%</span>
-                        </div>
-                      )}
-                    />
-                  )}
-                />
-              </RadialBarChart>
-            </ChartContainer>
-            <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center">
-              <div className="text-4xl font-bold leading-none tracking-tight text-white tabular-nums">{securityScore}</div>
-              <span className="mt-1.5 text-xs font-medium leading-none text-zinc-400 sm:text-sm">
-                Score
-              </span>
-            </div>
+    <Card className="flex h-full min-h-[420px] flex-col shadow-none">
+      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0 pb-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <CardTitle>Overall Security Score</CardTitle>
+          <CardDescription>Monthly average across completed assessments this year</CardDescription>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1.5 pl-2">
+          <div className="leading-none" aria-label={overall === null ? 'No overall score available' : `Overall average ${overall} out of ${MAX_SCORE}`}>
+            <span className="text-2xl font-bold tabular-nums text-foreground">{overall === null ? '—' : overall}</span>
+            {overall !== null && <span className="text-sm font-medium text-muted-foreground">/{MAX_SCORE}</span>}
           </div>
+          {hasAnyData && <TrendPill percent={yearTrend} title="Compared with previous month" />}
+        </div>
+      </CardHeader>
+      <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4 sm:px-5">
+        {hasAnyData ? (
+          <ChartContainer
+            config={config}
+            className="aspect-auto h-full min-h-[240px] w-full"
+            role="img"
+            aria-label={`Average security score by month for ${year}.${overall === null ? '' : ` Yearly average ${overall} out of ${MAX_SCORE}.`}`}
+          >
+            <BarChart data={chartData} margin={{ top: 8, right: 4, left: 4, bottom: 0 }} barCategoryGap="18%">
+              <defs>
+                <linearGradient id={SCORE_BAR_GRADIENT_ID} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7c5cff" />
+                  <stop offset="55%" stopColor="#638cff" />
+                  <stop offset="100%" stopColor="#62d6ff" />
+                </linearGradient>
+              </defs>
+              <YAxis hide domain={[0, MAX_SCORE]} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={9} interval={0} tick={{ fontSize: 10 }} />
+              <ChartTooltip
+                cursor={false}
+                shared={false}
+                content={
+                  <ChartTooltipContent
+                    hideLabel
+                    hideIndicator
+                    className="min-w-52 border-border/60 bg-popover px-3 py-2.5"
+                    formatter={(_, __, item) => {
+                      const datum = item.payload as ScoreChartDatum;
+                      return (
+                        <div className="grid gap-1.5">
+                          <span className="font-medium text-foreground">{datum.fullLabel}</span>
+                          <div className="flex items-center justify-between gap-6 text-muted-foreground">
+                            <span>Average Security Score</span>
+                            <span className="font-mono font-medium tabular-nums text-foreground">
+                              {datum.averageScore ?? '—'}
+                              <span className="text-muted-foreground">/{MAX_SCORE}</span>
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-6 text-muted-foreground">
+                            <span>Completed assessments</span>
+                            <span className="font-mono font-medium tabular-nums text-foreground">{datum.completedCount}</span>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                }
+              />
+              <Bar
+                dataKey="averageScore"
+                fill={`url(#${SCORE_BAR_GRADIENT_ID})`}
+                shape={<CustomGradientBar />}
+                activeBar={<CustomGradientBar opacity={0.82} />}
+                maxBarSize={40}
+                isAnimationActive
+                animationDuration={650}
+                animationEasing="ease-out"
+              />
+            </BarChart>
+          </ChartContainer>
         ) : (
-          <EmptyState icon={IconShieldCheck} title="No score available" description="Complete an assessment to calculate your security score." compact />
+          <div className="flex min-h-[240px] flex-1 items-center justify-center">
+            <EmptyState icon={IconShieldCheck} title="No score history" description="Complete an assessment to start tracking your security score." compact />
+          </div>
         )}
       </CardContent>
-      {hasData && (
-        <CardFooter className="border-t border-border/50 px-6 py-4 text-xs text-muted-foreground">
-          Overall score across assessments in the last six months
-        </CardFooter>
-      )}
     </Card>
   );
 }
 
-type SeverityDatum = { key: string; name: string; value: number };
+// =============================================================================
+// FINDINGS BY SEVERITY — severity distribution (last 8 weeks)
+// =============================================================================
 
-type SeverityChartDatum = SeverityDatum & {
-  rawValue: number;
-  chartValue: number;
+const SEVERITY_SERIES = [
+  { key: 'critical', name: 'Critical', colorVar: 'severity-critical' },
+  { key: 'high', name: 'High', colorVar: 'severity-high' },
+  { key: 'medium', name: 'Medium', colorVar: 'severity-medium' },
+  { key: 'low', name: 'Low', colorVar: 'severity-low' },
+  { key: 'info', name: 'Informational', colorVar: 'severity-info' },
+] as const;
+
+type SeverityRadialDatum = {
+  key: string;
+  name: string;
+  value: number;
   fill: string;
 };
 
-function buildSeverityChartData(data: SeverityDatum[], shades: string[]): SeverityChartDatum[] {
-  return data.map((item, index) => {
-    const rawValue = Math.max(0, Number.isFinite(item.value) ? item.value : 0);
-    return {
-      ...item,
-      value: rawValue,
-      rawValue,
-      chartValue: rawValue,
-      fill: shades[index] ?? shades[shades.length - 1],
-    };
-  });
-}
-
-function getFindingsTotal(data: SeverityChartDatum[]) {
-  return data.reduce((sum, item) => sum + item.rawValue, 0);
-}
-
-function getSeverityPercentage(value: number, total: number) {
-  return total > 0 ? Math.round((value / total) * 100) : 0;
-}
-
-export function FindingsSeverityChart({ data }: { data: SeverityDatum[] }) {
+export function FindingsSeverityChart({ trend, previousTotal }: { trend: WeeklyFindingsPoint[]; previousTotal: number }) {
   const colors = useChartColors();
-  const severityColors: Record<string, string> = {
-    critical: colors['severity-critical'],
-    high: colors['severity-high'],
-    medium: colors['severity-medium'],
-    low: colors['severity-low'],
-    info: colors['severity-info'],
-  };
-  const shades = data.map((item) => severityColors[item.key] ?? colors['muted-foreground']);
-  const chartData = buildSeverityChartData(data, shades);
-  const total = getFindingsTotal(chartData);
-  const maximum = Math.max(1, ...chartData.map((item) => item.chartValue));
-  const config = Object.fromEntries(chartData.map((item) => [item.key, { label: item.name, color: item.fill }])) satisfies ChartConfig;
+  // Same data source and logic as before: the eight-week findings series. Each
+  // radial segment is one severity's total across that window, and the badge keeps
+  // comparing the visible period's total against the previous eight weeks.
+  const chartData: SeverityRadialDatum[] = SEVERITY_SERIES.map((series) => ({
+    key: series.key,
+    name: series.name,
+    value: trend.reduce((sum, point) => sum + point[series.key], 0),
+    fill: colors[series.colorVar],
+  }));
+  const currentTotal = chartData.reduce((sum, item) => sum + item.value, 0);
+  const hasFindings = currentTotal > 0 || previousTotal > 0;
+  const findingsPercent = previousTotal > 0 ? ((currentTotal - previousTotal) / previousTotal) * 100 : null;
+  const config = Object.fromEntries(
+    SEVERITY_SERIES.map((series) => [series.key, { label: series.name, color: colors[series.colorVar] }]),
+  ) satisfies ChartConfig;
 
-  return <Card className="h-full shadow-none">
-    <CardHeader><CardTitle>Findings by Severity</CardTitle><CardDescription>Distribution across all scanned APIs</CardDescription></CardHeader>
-    <CardContent className="flex min-h-[20rem] flex-col items-center px-5 pb-6">
-      <ChartContainer
-        config={config}
-        className="h-[190px] w-full max-w-[300px] [&_.recharts-polar-grid-concentric-circle]:stroke-border/60 [&_.recharts-radial-bar-background-sector]:fill-muted/35"
-        role="img"
-        aria-label={`Findings by severity. ${total} total findings.`}
-      >
-        <RadialBarChart data={chartData} startAngle={90} endAngle={-270} innerRadius="28%" outerRadius="94%" barSize={9}>
-          <PolarAngleAxis type="number" domain={[0, maximum]} tick={false} axisLine={false} />
-          <PolarGrid gridType="circle" radialLines={false} stroke={colors.border} />
-          <RadialBar dataKey="chartValue" background={{ fill: colors.border }} cornerRadius={8} isAnimationActive={false} />
-          <ChartTooltip
-            cursor={false}
-            content={<ChartTooltipContent
-              hideLabel
-              formatter={(_, __, item) => {
-                const datum = item.payload as SeverityChartDatum;
-                const percentage = getSeverityPercentage(datum.rawValue, total);
-                return <div className="grid min-w-32 gap-1">
-                  <span className="font-medium text-foreground">{datum.name}</span>
-                  <span className="text-muted-foreground"><span className="font-mono font-medium tabular-nums text-foreground">{datum.rawValue.toLocaleString()}</span> findings</span>
-                  {total > 0 && <span className="text-muted-foreground">{percentage}% of total</span>}
-                </div>;
-              }}
-            />}
-          />
-        </RadialBarChart>
-      </ChartContainer>
-
-      <div className="mt-1 text-center" aria-live="polite">
-        <div className="text-3xl font-semibold tracking-tight tabular-nums">{total.toLocaleString()}</div>
-        <div className="text-[11px] text-muted-foreground">Total findings</div>
-        {total === 0 && <div className="mt-1 text-[11px] text-muted-foreground">No findings detected</div>}
-      </div>
-
-      <div className="mt-6 grid w-full grid-cols-1 gap-x-6 gap-y-2.5 min-[380px]:grid-cols-2" aria-label="Severity totals">
-        {chartData.map((item) => <div key={item.key} className="flex min-w-0 items-center justify-between gap-3 text-xs">
-          <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
-            <i aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.fill }} />
-            <span className="truncate">{item.name}</span>
-          </span>
-          <span className="font-medium tabular-nums">{item.rawValue.toLocaleString()}</span>
-        </div>)}
-      </div>
-    </CardContent>
-  </Card>;
+  return (
+    <Card className="flex h-full min-h-[420px] flex-col shadow-none">
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>Findings by Severity</CardTitle>
+          {hasFindings && <TrendPill percent={findingsPercent} invert title="Total findings vs the previous 8 weeks" />}
+        </div>
+        <CardDescription>Findings by severity over the last 8 weeks</CardDescription>
+      </CardHeader>
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 sm:px-5">
+        {hasFindings ? (
+          <>
+            <ChartContainer
+              config={config}
+              className="mx-auto aspect-square w-full max-h-[248px]"
+              role="img"
+              aria-label={`Findings by severity over the last 8 weeks. ${currentTotal.toLocaleString()} findings total.`}
+            >
+              <RadialBarChart data={chartData} innerRadius={30} outerRadius={100}>
+                <ChartTooltip
+                  cursor={false}
+                  content={
+                    <ChartTooltipContent
+                      hideLabel
+                      className="min-w-36 border-border/60 bg-popover"
+                      formatter={(_, __, item) => {
+                        const datum = item.payload as SeverityRadialDatum;
+                        const percentage = currentTotal > 0 ? Math.round((datum.value / currentTotal) * 100) : 0;
+                        return (
+                          <div className="grid gap-1">
+                            <span className="flex items-center gap-1.5 font-medium text-foreground">
+                              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: datum.fill }} />
+                              {datum.name}
+                            </span>
+                            <span className="text-muted-foreground">
+                              <span className="font-mono font-medium tabular-nums text-foreground">{datum.value.toLocaleString()}</span> findings
+                            </span>
+                            {currentTotal > 0 && <span className="text-muted-foreground">{percentage}% of total</span>}
+                          </div>
+                        );
+                      }}
+                    />
+                  }
+                />
+                <PolarGrid gridType="circle" stroke={colors.border} />
+                <RadialBar dataKey="value" />
+              </RadialBarChart>
+            </ChartContainer>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5" aria-label="Severity totals">
+              {chartData.map((item) => (
+                <div key={item.key} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                    <i aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.fill }} />
+                    <span className="truncate">{item.name}</span>
+                  </span>
+                  <span className="shrink-0 font-medium tabular-nums text-foreground">{item.value.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="flex min-h-[220px] flex-1 items-center justify-center">
+            <EmptyState icon={IconShieldCheck} title="No findings" description="No findings were detected in the last 8 weeks." compact />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
+
+// =============================================================================
+// OWASP API TOP 10 COVERAGE — radar with subtle glow
+// =============================================================================
+
+type OwaspDatum = { id: string; label: string; fullName: string; value: number };
 
 export function OwaspCoverageRadar({ coverage }: { coverage: Record<string, number> }) {
   const colors = useChartColors();
-  const data = OWASP_CATEGORIES.map((item) => ({ ...item, value: Math.min(100, Math.max(0, Number(coverage[item.id] ?? 0))) }));
+  const uid = useId().replace(/:/g, '');
+  const fillId = `owasp-radar-fill-${uid}`;
+  const glowId = `owasp-radar-glow-${uid}`;
+  const accent = colors.primary;
+  const data: OwaspDatum[] = OWASP_CATEGORIES.map((item) => ({
+    ...item,
+    value: Math.min(100, Math.max(0, Number(coverage[item.id] ?? 0))),
+  }));
   const hasCoverage = data.some((item) => item.value > 0);
-  const config = { value: { label: 'Coverage', color: colors['muted-foreground'] } } satisfies ChartConfig;
-  return <Card className="h-full shadow-none md:col-span-2 xl:col-span-1">
-    <CardHeader><CardTitle>OWASP API Top 10 Coverage</CardTitle><CardDescription>Measured coverage from recent assessment results</CardDescription></CardHeader>
-    <CardContent className="flex min-h-[20rem] items-center justify-center px-3 pb-5 sm:px-5">
-      {hasCoverage ? <ChartContainer config={config} className="h-[290px] w-full max-w-[420px]"><RadarChart data={data} outerRadius="80%"><ChartTooltip content={<ChartTooltipContent labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''} />} /><PolarGrid stroke={colors.border} /><PolarAngleAxis dataKey="label" tick={{ fill: colors['muted-foreground'], fontSize: 11 }} /><PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} /><Radar dataKey="value" stroke={colors['muted-foreground']} fill={colors['muted-foreground']} fillOpacity={0.16} dot={{ r: 2, fill: colors['chart-3'] }} /></RadarChart></ChartContainer> : <EmptyState icon={IconShieldCheck} title="Coverage unavailable" description="OWASP coverage will appear after compatible checks run." compact />}
-    </CardContent>
-  </Card>;
+  const config = { value: { label: 'Coverage', color: accent } } satisfies ChartConfig;
+
+  return (
+    <Card className="flex h-full min-h-[420px] flex-col shadow-none">
+      <CardHeader className="pb-2">
+        <CardTitle>OWASP API Top 10 Coverage</CardTitle>
+        <CardDescription>Measured coverage from recent assessment results</CardDescription>
+      </CardHeader>
+      <CardContent className="flex min-h-0 flex-1 items-center justify-center px-3 pb-4 sm:px-4">
+        {hasCoverage ? (
+          <ChartContainer config={config} className="mx-auto aspect-square h-full max-h-[340px] w-full max-w-[360px]">
+            <RadarChart data={data} outerRadius="70%" margin={{ top: 18, right: 24, bottom: 18, left: 24 }} accessibilityLayer>
+              <defs>
+                <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={accent} stopOpacity={0.5} />
+                  <stop offset="100%" stopColor={accent} stopOpacity={0.05} />
+                </linearGradient>
+                <filter id={glowId} x="-30%" y="-30%" width="160%" height="160%">
+                  <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor={accent} floodOpacity="0.45" />
+                </filter>
+              </defs>
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    className="min-w-48 border-border/60 bg-popover"
+                    labelFormatter={(_, payload) => (payload?.[0]?.payload as OwaspDatum | undefined)?.fullName ?? ''}
+                    formatter={(_, __, item) => {
+                      const datum = item.payload as OwaspDatum;
+                      return (
+                        <div className="flex w-full items-center justify-between gap-6 text-muted-foreground">
+                          <span className="font-mono text-foreground">{datum.label}</span>
+                          <span className="font-mono font-medium tabular-nums text-foreground">{datum.value}% coverage</span>
+                        </div>
+                      );
+                    }}
+                  />
+                }
+              />
+              <PolarGrid stroke={colors.border} />
+              <PolarAngleAxis dataKey="label" tick={{ fill: colors['muted-foreground'], fontSize: 11 }} />
+              <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+              <Radar
+                dataKey="value"
+                stroke={accent}
+                strokeWidth={2}
+                fill={`url(#${fillId})`}
+                fillOpacity={1}
+                filter={`url(#${glowId})`}
+                dot={{ r: 3, fill: accent, strokeWidth: 0 }}
+                isAnimationActive
+                animationDuration={650}
+              />
+            </RadarChart>
+          </ChartContainer>
+        ) : (
+          <EmptyState icon={IconShieldCheck} title="Coverage unavailable" description="OWASP coverage will appear after compatible checks run." compact />
+        )}
+      </CardContent>
+    </Card>
+  );
 }

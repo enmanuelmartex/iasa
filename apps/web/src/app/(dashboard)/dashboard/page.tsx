@@ -13,14 +13,6 @@ import { FindingsSeverityChart, OwaspCoverageRadar, OWASP_CATEGORIES, SecuritySc
 import { RecentAssessmentsTable } from '@/components/dashboard/recent-assessments-table';
 import type { DashboardStats } from '@/types';
 
-const SEVERITIES = [
-  { key: 'critical', name: 'Critical' },
-  { key: 'high', name: 'High' },
-  { key: 'medium', name: 'Medium' },
-  { key: 'low', name: 'Low' },
-  { key: 'info', name: 'Informational' },
-] as const;
-
 function aggregateOwaspCoverage(stats?: DashboardStats) {
   const totals: Record<string, number> = {};
   const assessments = stats?.recentAssessments ?? [];
@@ -46,7 +38,6 @@ export default function DashboardPage() {
   // claim the worst possible posture for a workspace that has simply not been
   // scanned yet.
   const securityScore = stats?.avgSecurityScore ?? null;
-  const severityData = SEVERITIES.map((item) => ({ ...item, value: stats?.findings?.[item.key] ?? 0 }));
 
   return <PageContainer className="space-y-5 pb-10">
     <PageHeader title="Security Dashboard" description="Monitor your API security posture across all projects" className="mb-0" actions={<Button asChild><Link href="/projects/new"><IconPlus className="h-4 w-4" />New Project</Link></Button>} />
@@ -57,9 +48,9 @@ export default function DashboardPage() {
       <MetricCard label="Projects" value={String(stats?.totalProjects ?? 0)} icon={<IconFolder className="h-4 w-4" />} tone="muted" description="Active API projects" />
       <MetricCard label="Assessments" value={String(stats?.totalAssessments ?? 0)} icon={<IconActivity className="h-4 w-4" />} tone="muted" description="Completed security scans" />
     </section>
-    <section aria-label="Security analytics" className="grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.15fr)_minmax(0,1.15fr)]">
-      <SecurityScoreChart score={securityScore ?? 0} hasData={securityScore !== null} />
-      <FindingsSeverityChart data={severityData} />
+    <section aria-label="Security analytics" className="grid auto-rows-fr grid-cols-1 items-stretch gap-5 md:grid-cols-2 xl:grid-cols-3">
+      <SecurityScoreChart trend={stats?.scoreTrend ?? []} yearAverage={stats?.scoreTrendAverage ?? null} />
+      <FindingsSeverityChart trend={stats?.findingsTrend ?? []} previousTotal={stats?.findingsTrendPreviousTotal ?? 0} />
       <OwaspCoverageRadar coverage={aggregateOwaspCoverage(stats)} />
     </section>
     <RecentAssessmentsTable assessments={stats?.recentAssessments ?? []} />
