@@ -1,3 +1,10 @@
+import {
+  redactHeaders,
+  redactHttpMessage,
+  redactObject,
+  redactUrl,
+} from '../../../common/utils/redact.util';
+
 export interface ScanContext {
   assessmentId: string;
   projectId: string;
@@ -58,6 +65,34 @@ export interface ScanFinding {
   owaspCategory: string;
   cweId?: string;
   pluginId: string;
+
+  /**
+   * Stable, namespaced identifier of the RULE that produced this finding,
+   * e.g. `headers.missing-hsts`. Part of the issue fingerprint.
+   *
+   * Must be declared explicitly in the plugin, never slugified from the title
+   * at runtime: an editorial change to a message must not change the identity
+   * of the issue it describes. A plugin that emits several kinds of finding
+   * must use a distinct ruleId for each.
+   */
+  ruleId: string;
+
+  /**
+   * Stable name of the affected area, e.g. `response-header:cache-control`,
+   * `query:user_id`, `body:password`, `endpoint`, `project`. Part of the
+   * fingerprint, so it must name a location and never carry an observed value.
+   */
+  component?: string;
+
+  /**
+   * Template path this finding refers to, e.g. `/users/{id}`. Defaults to the
+   * referenced endpoint's path. Never a concrete URL with real ids.
+   */
+  route?: string;
+
+  /** HTTP method of the affected endpoint. Omit for project-wide findings. */
+  method?: string;
+
   endpointId?: string;
   affectedUrl?: string;
   description: string;
@@ -111,20 +146,33 @@ export abstract class BasePlugin {
 
   abstract run(context: ScanContext, pluginConfig?: Record<string, any>): Promise<PluginResult>;
 
+  /**
+   * Serialises an outbound request as evidence.
+   *
+   * The scanner authenticates with the user's real credentials, so this string
+   * would otherwise persist `Authorization: Bearer <real token>` into the
+   * database and every report. Header names are kept (proving the request was
+   * authenticated); their values are redacted. Never bypass this helper.
+   */
   protected buildRequestString(method: string, url: string, headers: Record<string, string>, body?: any): string {
-    const headerLines = Object.entries(headers)
+    const headerLines = Object.entries(redactHeaders(headers))
       .map(([k, v]) => `${k}: ${v}`)
       .join('\n');
-    const bodyStr = body ? `\n\n${typeof body === 'string' ? body : JSON.stringify(body, null, 2)}` : '';
-    return `${method.toUpperCase()} ${url} HTTP/1.1\n${headerLines}${bodyStr}`;
+    const rawBody = body ? (typeof body === 'string' ? body : JSON.stringify(redactObject(body), null, 2)) : '';
+    const bodyStr = rawBody ? `\n\n${rawBody}` : '';
+    return redactHttpMessage(
+      `${method.toUpperCase()} ${redactUrl(url)} HTTP/1.1\n${headerLines}${bodyStr}`,
+    ) as string;
   }
 
+  /** Serialises a response as evidence. Redacts Set-Cookie and token-bearing bodies. */
   protected buildResponseString(status: number, headers: Record<string, string>, body: any): string {
-    const headerLines = Object.entries(headers)
+    const headerLines = Object.entries(redactHeaders(headers))
       .map(([k, v]) => `${k}: ${v}`)
       .join('\n');
-    const bodyStr = body ? `\n\n${typeof body === 'string' ? body : JSON.stringify(body, null, 2)}` : '';
-    return `HTTP/1.1 ${status}\n${headerLines}${bodyStr}`;
+    const rawBody = body ? (typeof body === 'string' ? body : JSON.stringify(redactObject(body), null, 2)) : '';
+    const bodyStr = rawBody ? `\n\n${rawBody}` : '';
+    return redactHttpMessage(`HTTP/1.1 ${status}\n${headerLines}${bodyStr}`) as string;
   }
 
   protected getAuthHeaders(auth: AuthConfig): Record<string, string> {

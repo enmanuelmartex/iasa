@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { existsSync } from 'node:fs';
+import puppeteer from 'puppeteer-core';
 
 type ReportType = 'TECHNICAL' | 'EXECUTIVE' | 'DEVELOPER' | 'COMPLIANCE';
 
@@ -14,20 +16,64 @@ const SEVERITY_COLOR: Record<string, string> = {
 export class ReportGeneratorService {
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Loads the data a report renders.
+   *
+   * Reports are built from the scan's OCCURRENCES, using the snapshot columns
+   * captured at detection time. That is what makes a historical report
+   * reproducible: re-importing a specification, rewording a check or retuning a
+   * severity cannot retroactively alter a report that was already issued.
+   *
+   * Occurrences are projected onto the field names the renderers already use,
+   * so the templates stay untouched, and each carries its persistent issue id
+   * so a reader can navigate from a report entry to the live issue.
+   */
   async getAssessmentData(assessmentId: string, userId: string) {
     const assessment = await this.prisma.assessment.findFirst({
       where: { id: assessmentId, project: { userId } },
       include: {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
         summary: true,
-        findings: {
-          orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
-          include: { endpoint: { select: { path: true, method: true } } },
+        occurrences: {
+          orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
+          include: {
+            endpoint: { select: { path: true, method: true } },
+            issue: { select: { id: true, status: true, firstSeenAt: true, occurrenceCount: true } },
+          },
         },
       },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
-    return assessment;
+
+    return {
+      ...assessment,
+      findings: assessment.occurrences.map((occurrence) => ({
+        id: occurrence.id,
+        issueId: occurrence.issueId,
+        issueStatus: occurrence.issue?.status ?? null,
+        firstSeenAt: occurrence.issue?.firstSeenAt ?? occurrence.detectedAt,
+        occurrenceCount: occurrence.issue?.occurrenceCount ?? 1,
+
+        title: occurrence.titleSnapshot,
+        description: occurrence.descriptionSnapshot,
+        severity: occurrence.severitySnapshot,
+        cvssScore: occurrence.cvssSnapshot,
+        owaspCategory: occurrence.owaspSnapshot,
+        cweId: occurrence.cweSnapshot,
+        pluginId: occurrence.pluginIdSnapshot,
+        ruleId: occurrence.ruleIdSnapshot,
+        impact: occurrence.impactSnapshot,
+        remediation: occurrence.remediationSnapshot,
+        category: occurrence.location,
+        affectedUrl: occurrence.affectedUrl,
+        evidence: occurrence.evidence,
+        createdAt: occurrence.detectedAt,
+        endpoint:
+          occurrence.endpoint ??
+          { path: occurrence.pathSnapshot, method: occurrence.methodSnapshot },
+        references: [] as string[],
+      })),
+    };
   }
 
   generateJson(assessment: any): string {
@@ -61,6 +107,7 @@ export class ReportGeneratorService {
         impact: f.impact,
         remediation: f.remediation,
         references: f.references,
+        aiAnalysis: f.aiAnalysis,
         status: f.status,
       })),
     };
@@ -204,8 +251,24 @@ export class ReportGeneratorService {
     const date = new Date().toLocaleDateString('en-US', {
       year: 'numeric', month: 'long', day: 'numeric',
     });
-    const score = summary?.securityScore ?? 100;
-    const scoreColor = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : score >= 40 ? '#f97316' : '#ef4444';
+    // Read from the stored snapshot, never recomputed. `?? 100` here previously
+    // printed a perfect score on a report for a scan that produced none.
+    const score = summary?.securityScore ?? null;
+    const scoreStatus = summary?.scoreStatus ?? 'UNAVAILABLE';
+    const scoreLabel = score === null ? 'Unavailable' : `${score}/100`;
+    const scoreColor =
+      score === null
+        ? '#6b7280'
+        : score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : score >= 40 ? '#f97316' : '#ef4444';
+
+    // A report built from an incomplete scan must say so on its face.
+    const scoreCaveat =
+      scoreStatus === 'FINAL'
+        ? ''
+        : scoreStatus === 'PROVISIONAL'
+          ? `Provisional — ${summary?.successfulChecks ?? 0} of ${summary?.plannedChecks ?? 0} checks completed` +
+            (summary?.coveragePercent != null ? ` (${summary.coveragePercent}% coverage)` : '')
+          : 'No score could be computed for this scan';
 
     const sorted = [...findings].sort(
       (a: any, b: any) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9),
@@ -226,6 +289,7 @@ export class ReportGeneratorService {
         <div class="text">${esc(f.description ?? '')}</div>
         ${f.impact ? `<div class="section-label">Impact</div><div class="text">${esc(f.impact)}</div>` : ''}
         ${f.remediation ? `<div class="section-label">Remediation</div><div class="text remediation">${esc(f.remediation)}</div>` : ''}
+        ${f.aiAnalysis ? `<div class="section-label">AI security enrichment</div><div class="text ai-box">${f.aiAnalysis.technicalAnalysis ? `<strong>Technical analysis:</strong> ${esc(f.aiAnalysis.technicalAnalysis)}<br>` : ''}${f.aiAnalysis.businessImpact ? `<strong>Business impact:</strong> ${esc(f.aiAnalysis.businessImpact)}<br>` : ''}${Array.isArray(f.aiAnalysis.securityBestPractices) ? `<strong>Best practices:</strong><ul>${f.aiAnalysis.securityBestPractices.map((item: string) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}${Array.isArray(f.aiAnalysis.validationSteps) ? `<strong>Validation:</strong><ul>${f.aiAnalysis.validationSteps.map((item: string) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>` : ''}
         ${f.references?.length ? `<div class="section-label">References</div><ul class="refs">${f.references.map((r: string) => `<li><a href="${esc(r)}">${esc(r)}</a></li>`).join('')}</ul>` : ''}
       </div>`;
     }).join('');
@@ -277,6 +341,8 @@ export class ReportGeneratorService {
   .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; margin-top: 10px; margin-bottom: 4px; }
   .text { font-size: 12px; color: #475569; }
   .remediation { color: #166534; background: #f0fdf4; padding: 8px; border-radius: 6px; border-left: 3px solid #22c55e; }
+  .ai-box { background: #eff6ff; border-left: 3px solid #3b82f6; padding: 8px; border-radius: 6px; }
+  .ai-box ul { padding-left: 18px; margin: 4px 0 8px; }
   .refs { padding-left: 16px; font-size: 11px; color: #64748b; }
   .refs a { color: #6366f1; }
   /* Print button */
@@ -293,11 +359,12 @@ export class ReportGeneratorService {
     <div>
       <h1>Security Assessment Report</h1>
       <p>${esc(project.name)} &nbsp;·&nbsp; ${esc(project.baseUrl ?? '')} &nbsp;·&nbsp; ${date}</p>
-      <p style="margin-top:6px">Report type: <strong>${type}</strong> &nbsp;·&nbsp; Risk: <strong style="color:${scoreColor}">${summary?.riskLevel ?? 'N/A'}</strong></p>
+      <p style="margin-top:6px">Report type: <strong>${type}</strong> &nbsp;·&nbsp; Risk: <strong style="color:${scoreColor}">${summary?.riskLevel ?? 'Unknown'}</strong></p>
+      ${scoreCaveat ? `<p style="margin-top:6px;color:#f97316"><strong>${scoreCaveat}</strong></p>` : ''}
     </div>
     <div class="score-circle">
-      <span class="score-num">${score}</span>
-      <span class="score-label">Score</span>
+      <span class="score-num">${score === null ? '—' : score}</span>
+      <span class="score-label">${score === null ? 'No score' : 'Score'}</span>
     </div>
   </div>
 
@@ -329,6 +396,31 @@ export class ReportGeneratorService {
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────
+
+  async generatePdf(assessment: any, type: ReportType): Promise<Buffer> {
+    const browser = await puppeteer.launch({
+      executablePath: this.findBrowserExecutable(),
+      headless: true,
+      args: process.env.CHROMIUM_DISABLE_SANDBOX === 'true'
+        ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        : ['--disable-dev-shm-usage'],
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(this.generateHtml(assessment, type), { waitUntil: 'domcontentloaded' });
+      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '14mm', right: '12mm', bottom: '14mm', left: '12mm' } });
+      return Buffer.from(pdf);
+    } finally {
+      await browser.close();
+    }
+  }
+
+  private findBrowserExecutable(): string {
+    const candidates = [process.env.CHROMIUM_EXECUTABLE_PATH, 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'].filter(Boolean) as string[];
+    const executable = candidates.find((candidate) => existsSync(candidate));
+    if (!executable) throw new Error('PDF generation requires Chromium. Set CHROMIUM_EXECUTABLE_PATH.');
+    return executable;
+  }
 
   private sevCard(severity: string, count: number): string {
     const color = SEVERITY_COLOR[severity] ?? '#6b7280';

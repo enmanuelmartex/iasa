@@ -5,6 +5,8 @@ import { ScannerProcessor } from './scanner.processor';
 import { AiModule } from '../ai/ai.module';
 import { PluginsModule } from '../plugins/plugins.module';
 import { ReportsModule } from '../reports/reports.module';
+import { IssuesModule } from '../issues/issues.module';
+import { ScoringModule } from '../scoring/scoring.module';
 
 @Module({
   imports: [
@@ -12,6 +14,8 @@ import { ReportsModule } from '../reports/reports.module';
     AiModule,
     PluginsModule,
     ReportsModule,
+    IssuesModule,
+    ScoringModule,
   ],
   providers: [ScannerService, ScannerProcessor],
   exports: [ScannerService],

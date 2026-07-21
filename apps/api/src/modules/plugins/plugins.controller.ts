@@ -22,10 +22,20 @@ export class PluginsController {
     return this.pluginsService.findAll(req.user.id);
   }
 
-  // GET /plugins/categories — distinct categories in use
+  /**
+   * GET /plugins/categories — categories that actually have a registered check.
+   *
+   * The PluginCategory enum declares 13 values but only 6 are implemented.
+   * Returning the raw enum advertised Injection, Cloud, GraphQL, gRPC, SOAP,
+   * API Design and AI as if they were available capabilities. Derived from the
+   * registry so this can never drift from what is really installed.
+   */
   @Get('categories')
   getCategories() {
-    return Object.values(PluginCategory);
+    const inUse = new Set(
+      this.registry.getAllManifests().map((manifest) => manifest.category),
+    );
+    return Object.values(PluginCategory).filter((category) => inUse.has(category));
   }
 
   // GET /plugins/:id — plugin detail with stats
@@ -60,10 +70,10 @@ export class PluginsController {
     return this.pluginsService.getExecutionHistory(id, req.user.id);
   }
 
-  // GET /plugins/:id/findings — historical findings from this plugin
-  @Get(':id/findings')
-  getFindings(@Param('id') id: string, @Request() req: any) {
-    return this.pluginsService.getFindings(id, req.user.id);
+  // GET /plugins/:id/issues — persistent issues detected by this check
+  @Get(':id/issues')
+  getIssues(@Param('id') id: string, @Request() req: any) {
+    return this.pluginsService.getIssues(id, req.user.id);
   }
 
   // POST /plugins/:id/run — run single plugin against a project

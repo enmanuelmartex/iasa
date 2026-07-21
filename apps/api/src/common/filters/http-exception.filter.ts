@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { redactUrl } from '../utils/redact.util';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -27,21 +28,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ? exception.getResponse()
         : 'Internal server error';
 
+    // The URL may carry an SSE `?token=` credential — redact before it reaches
+    // the response body or the log.
+    const safeUrl = redactUrl(request.url);
+
     const errorResponse = {
       statusCode: status,
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path: safeUrl,
       method: request.method,
       error: typeof message === 'string' ? message : (message as any).message || message,
     };
 
     if (status >= 500) {
       this.logger.error(
-        `${request.method} ${request.url} — ${status}`,
+        `${request.method} ${safeUrl} — ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
     } else {
-      this.logger.warn(`${request.method} ${request.url} — ${status}`);
+      this.logger.warn(`${request.method} ${safeUrl} — ${status}`);
     }
 
     response.status(status).json(errorResponse);

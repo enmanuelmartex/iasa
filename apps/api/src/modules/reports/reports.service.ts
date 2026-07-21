@@ -32,8 +32,11 @@ export class ReportsService {
             id: true,
             project: { select: { id: true, name: true } },
             summary: true,
-            findings: {
-              orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
+            // Snapshots from the scan this report describes, so the report's
+            // content cannot drift as issues are later re-triaged or reworded.
+            occurrences: {
+              orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
+              include: { issue: { select: { id: true, status: true } } },
             },
           },
         },
@@ -99,15 +102,20 @@ export class ReportsService {
       (sum, a) => sum + (a.summary?.lowCount || 0),
       0,
     );
+    // Averages only assessments that actually produced a score.
+    //
+    // This previously used `|| 100`, which turned a real score of 0 — the worst
+    // possible posture — into a perfect 100, and counted scans with no summary
+    // as perfect too. Null now means "no score", and is excluded rather than
+    // substituted.
+    const scored = assessments
+      .map((a) => a.summary?.securityScore)
+      .filter((score): score is number => typeof score === 'number');
+
     const avgSecurityScore =
-      assessments.length > 0
-        ? Math.round(
-            assessments.reduce(
-              (sum, a) => sum + (a.summary?.securityScore || 100),
-              0,
-            ) / assessments.length,
-          )
-        : 100;
+      scored.length > 0
+        ? Math.round(scored.reduce((sum, score) => sum + score, 0) / scored.length)
+        : null;
 
     const avgDuration =
       assessments.filter((a) => a.duration).length > 0
@@ -136,7 +144,8 @@ export class ReportsService {
       trendMap[day].medium += a.summary?.mediumCount || 0;
       trendMap[day].low += a.summary?.lowCount || 0;
       trendMap[day].total += a.summary?.totalFindings || 0;
-      trendMap[day].score = a.summary?.securityScore || 100;
+      // Null when the day's last scan produced no score, rather than 100.
+      trendMap[day].score = a.summary?.securityScore ?? null;
     }
 
     const trend = Object.values(trendMap).sort((a, b) =>

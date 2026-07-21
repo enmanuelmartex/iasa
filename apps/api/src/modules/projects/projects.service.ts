@@ -9,13 +9,19 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProjectDto, SaveProjectDraftDto, UpdateProjectDto } from './dto/create-project.dto';
 import SwaggerParser = require('swagger-parser');
 import axios from 'axios';
-import { resolveTargetUrl } from '../../common/utils/url-resolver.util';
+import { assertSafeRemoteUrl, resolveTargetUrl } from '../../common/utils/url-resolver.util';
+import { CryptoService } from '../../common/crypto/crypto.service';
+import { encryptAuthFields, stripAuthSecrets } from '../../common/crypto/auth-config.crypto';
+import { assertNoExternalRefs, SAFE_PARSER_OPTIONS } from '../../common/utils/openapi-safety.util';
 
 @Injectable()
 export class ProjectsService {
   private readonly logger = new Logger(ProjectsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private crypto: CryptoService,
+  ) {}
 
   async findAll(userId: string) {
     const projects = await this.prisma.project.findMany({
@@ -25,12 +31,30 @@ export class ProjectsService {
           include: { authConfig: true },
         },
         _count: {
-          select: { assessments: true },
+          select: {
+            assessments: true,
+            // Open issues now hang off the project directly, so the count is a
+            // single indexed query rather than a sum over every scan.
+            securityIssues: { where: { status: { in: ['OPEN', 'ACKNOWLEDGED', 'ACCEPTED_RISK'] } } },
+          },
+        },
+        assessments: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { status: true },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
-    return projects.map((project) => this.toProjectResponse(project));
+
+    return projects.map(({ assessments, ...project }) => ({
+      ...this.toProjectResponse(project),
+      // Vulnerabilities currently open on this project — not the number of
+      // times they have been detected. Previously this summed findings across
+      // every scan, so rescanning an unchanged API inflated the number.
+      openIssuesCount: project._count.securityIssues,
+      lastScanStatus: assessments[0]?.status ?? null,
+    }));
   }
 
   async findOne(id: string, userId: string) {
@@ -139,12 +163,20 @@ export class ProjectsService {
   async importOpenApiFromUrl(projectId: string, userId: string, url: string) {
     await this.assertOwner(projectId, userId);
 
-    const resolvedUrl = resolveTargetUrl(url);
-    this.logger.log(`Importing OpenAPI spec from URL: ${resolvedUrl}`);
+    const validatedUrl = await assertSafeRemoteUrl(url);
+    const resolvedUrl = resolveTargetUrl(validatedUrl);
+    this.logger.log(`Importing OpenAPI spec from ${new URL(validatedUrl).hostname}`);
 
     let rawSpec: any;
     try {
-      const response = await axios.get(resolvedUrl, { timeout: 15000 });
+      const response = await axios.get(resolvedUrl, {
+        timeout: 15000,
+        maxRedirects: 0,
+        maxContentLength: 5 * 1024 * 1024,
+        maxBodyLength: 5 * 1024 * 1024,
+        responseType: 'json',
+        headers: { Accept: 'application/json, application/yaml, text/yaml' },
+      });
       rawSpec = response.data;
     } catch (error) {
       this.logger.warn(`Specification URL import failed: ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -169,9 +201,14 @@ export class ProjectsService {
     source: 'URL' | 'UPLOAD' | 'MANUAL',
     url?: string,
   ) {
+    // Must run before dereference: dereferencing is what performs the fetch.
+    // Applies to uploads as well as URL imports, since an uploaded document can
+    // carry external refs that would otherwise bypass assertSafeRemoteUrl.
+    assertNoExternalRefs(rawSpec);
+
     let parsed: any;
     try {
-      parsed = await SwaggerParser.dereference(rawSpec as any);
+      parsed = await SwaggerParser.dereference(rawSpec as any, SAFE_PARSER_OPTIONS as any);
     } catch (err) {
       this.logger.warn(`Could not fully dereference spec: ${err.message}`);
       throw new BadRequestException('Upload a valid OpenAPI JSON or YAML document.');
@@ -268,13 +305,19 @@ export class ProjectsService {
     if (authData.type === 'OAUTH2' && (!authData.clientId || !authData.clientSecret || !authData.tokenUrl)) throw new BadRequestException('OAuth 2.0 configuration is incomplete.');
     const safeAuthData = Object.fromEntries(Object.entries(authData).filter(([key]) => ['type', 'token', 'username', 'password', 'apiKey', 'apiKeyHeader', 'apiKeyLocation', 'clientId', 'clientSecret', 'tokenUrl', 'scopes'].includes(key)));
 
+    // Encrypt every credential before it touches the database. This is
+    // idempotent, so re-saving never double-encrypts.
+    const encrypted = encryptAuthFields(this.crypto, safeAuthData);
+
     const result = await this.prisma.authConfig.upsert({
       where: { apiSpecId: apiSpec.id },
-      update: safeAuthData,
-      create: { apiSpecId: apiSpec.id, ...safeAuthData } as any,
+      update: encrypted,
+      create: { apiSpecId: apiSpec.id, ...encrypted } as any,
     });
     await this.prisma.project.update({ where: { id: projectId }, data: { setupStep: 3 } });
-    return result;
+
+    // Never echo credentials back to the client — not even the ciphertext.
+    return stripAuthSecrets(result);
   }
 
   private async assertOwner(projectId: string, userId: string) {
@@ -319,8 +362,6 @@ export class ProjectsService {
   }
 
   private sanitizeAuthConfig(authConfig?: any) {
-    if (!authConfig) return authConfig;
-    const { token: _token, password: _password, apiKey: _apiKey, clientId: _clientId, clientSecret: _clientSecret, customHeaders: _customHeaders, ...safe } = authConfig;
-    return safe;
+    return stripAuthSecrets(authConfig);
   }
 }

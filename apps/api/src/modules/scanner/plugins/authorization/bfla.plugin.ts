@@ -19,6 +19,11 @@ export class BflaPlugin extends BasePlugin {
     permissions: ['http:read', 'http:write', 'findings:write'],
     minimumCoreVersion: '1.0.0',
     isBuiltin: true,
+    ruleNamespace: 'bfla',
+    ruleIds: [
+      'bfla.admin-endpoint-accessible',
+      'bfla.http-method-escalation',
+    ],
   };
 
   private readonly adminPaths = [
@@ -61,6 +66,10 @@ export class BflaPlugin extends BasePlugin {
             owaspCategory: 'API5:2023',
             cweId: 'CWE-285',
             pluginId: this.id,
+            ruleId: 'bfla.admin-endpoint-accessible',
+            component: 'endpoint',
+            route: adminPath,
+            method: 'GET',
             affectedUrl: `GET ${url}`,
             description: `The administrative endpoint GET ${adminPath} returned HTTP ${resp.status}. Administrative functions should be protected with role-based access controls and should not be accessible to regular authenticated users.`,
             impact: 'Regular users may be able to perform administrative actions including user management, data deletion, and system configuration changes.',
@@ -107,6 +116,12 @@ export class BflaPlugin extends BasePlugin {
               owaspCategory: 'API5:2023',
               cweId: 'CWE-285',
               pluginId: this.id,
+              ruleId: 'bfla.http-method-escalation',
+              // The escalated method is what makes this issue distinct, so it
+              // belongs in the component rather than collapsing into the route.
+              component: `method:${method.toLowerCase()}`,
+              route: endpoint.path,
+              method: endpoint.method,
               endpointId: endpoint.id,
               affectedUrl: `${method} ${url}`,
               description: `Sending a ${method} request to ${endpoint.path} (originally documented as GET-only) returned HTTP ${resp.status}. This suggests function-level authorization is not enforced for this HTTP method.`,

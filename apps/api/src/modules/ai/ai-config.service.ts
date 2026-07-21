@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { IAiProvider } from './interfaces/ai-provider.interface';
 import { OpenAiProvider } from './providers/openai.provider';
@@ -123,6 +123,7 @@ export class AiConfigService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly crypto: CryptoService,
   ) {}
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -449,27 +450,18 @@ export class AiConfigService {
   }
 
   // ── Encryption ────────────────────────────────────────────────────────────────
-
-  private getEncryptionKey(): Buffer {
-    const raw = this.configService.get<string>('security.encryptionKey') || 'fallback-encryption-key-32chars!!';
-    return Buffer.from(raw.padEnd(32).slice(0, 32), 'utf8');
-  }
+  //
+  // Delegates to the shared CryptoService. This class previously carried its own
+  // AES-256-CBC implementation with a second, differently-valued hardcoded
+  // fallback key — meaning values encrypted here could not be decrypted
+  // elsewhere. Both the duplicate implementation and the fallback are gone.
 
   private async encrypt(text: string): Promise<string> {
-    const iv  = randomBytes(16);
-    const key = this.getEncryptionKey();
-    const cipher = createCipheriv('aes-256-cbc', key, iv);
-    const enc  = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
-    return `${iv.toString('hex')}:${enc.toString('hex')}`;
+    return this.crypto.encrypt(text);
   }
 
+  /** Returns '' when a stored key cannot be decrypted, so callers degrade to "not configured". */
   private async decrypt(encoded: string): Promise<string> {
-    const [ivHex, encHex] = encoded.split(':');
-    if (!ivHex || !encHex) return '';
-    const iv      = Buffer.from(ivHex, 'hex');
-    const enc     = Buffer.from(encHex, 'hex');
-    const key     = this.getEncryptionKey();
-    const decipher = createDecipheriv('aes-256-cbc', key, iv);
-    return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+    return this.crypto.decryptIfNeeded(encoded) ?? '';
   }
 }

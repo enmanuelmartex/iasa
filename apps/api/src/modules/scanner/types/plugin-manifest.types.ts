@@ -66,4 +66,22 @@ export interface PluginManifest {
   /** Minimum IASA core version required */
   minimumCoreVersion: string;
   isBuiltin: boolean;
+
+  /**
+   * Namespace every ruleId of this plugin must start with, e.g. `headers`.
+   *
+   * Separate from `id` because a namespace reads better in a fingerprint than a
+   * plugin slug does (`headers.missing-hsts`, not `security-headers.missing-hsts`).
+   */
+  ruleNamespace: string;
+
+  /**
+   * Every ruleId this plugin can emit, declared up front.
+   *
+   * Rule ids are part of the issue fingerprint, so they are API-stable: changing
+   * one splits an existing issue into a new one. Declaring them here lets the
+   * registry reject empty, unnamespaced or colliding ids at boot, and lets the
+   * persistence layer reject a finding whose ruleId was never declared.
+   */
+  ruleIds: string[];
 }

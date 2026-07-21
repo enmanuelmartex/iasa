@@ -19,6 +19,11 @@ export class BrokenAuthPlugin extends BasePlugin {
     permissions: ['http:read', 'http:write', 'findings:write'],
     minimumCoreVersion: '1.0.0',
     isBuiltin: true,
+    ruleNamespace: 'auth',
+    ruleIds: [
+      'auth.missing-authentication',
+      'auth.accepts-invalid-token',
+    ],
   };
 
   async run(context: ScanContext): Promise<PluginResult> {
@@ -56,6 +61,10 @@ export class BrokenAuthPlugin extends BasePlugin {
             owaspCategory: 'API2:2023',
             cweId: 'CWE-306',
             pluginId: this.id,
+            ruleId: 'auth.missing-authentication',
+            component: 'endpoint',
+            route: endpoint.path,
+            method: endpoint.method,
             endpointId: endpoint.id,
             affectedUrl: `${endpoint.method} ${url}`,
             description: `The endpoint ${endpoint.method} ${endpoint.path} returns a ${resp.status} response without any authentication credentials. This means the endpoint is publicly accessible and may expose sensitive data or functionality.`,
@@ -111,6 +120,10 @@ export class BrokenAuthPlugin extends BasePlugin {
               owaspCategory: 'API2:2023',
               cweId: 'CWE-287',
               pluginId: this.id,
+              ruleId: 'auth.accepts-invalid-token',
+              component: 'header:authorization',
+              route: endpoint.path,
+              method: endpoint.method,
               endpointId: endpoint.id,
               affectedUrl: `${endpoint.method} ${url}`,
               description: `The endpoint ${endpoint.method} ${endpoint.path} returned ${resp.status} when called with a clearly malformed JWT token (invalid.token.here). This indicates the server is not properly validating authentication tokens.`,

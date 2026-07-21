@@ -23,6 +23,11 @@ export class RateLimitPlugin extends BasePlugin {
     defaultConfig: { requestCount: 25 },
     minimumCoreVersion: '1.0.0',
     isBuiltin: true,
+    ruleNamespace: 'rate-limit',
+    ruleIds: [
+      'rate-limit.absent',
+      'rate-limit.missing-headers',
+    ],
   };
 
   async run(context: ScanContext): Promise<PluginResult> {
@@ -85,6 +90,10 @@ export class RateLimitPlugin extends BasePlugin {
           cvssScore: 7.5,
           owaspCategory: 'API4:2023',
           cweId: 'CWE-770',
+          ruleId: 'rate-limit.absent',
+          component: 'endpoint',
+          route: endpoint.path,
+          method: endpoint.method,
           pluginId: this.id,
           endpointId: endpoint.id,
           affectedUrl: `${endpoint.method} ${url}`,
@@ -132,6 +141,10 @@ export class AuthController {}
           severity: 'LOW',
           cvssScore: 3.1,
           owaspCategory: 'API4:2023',
+          ruleId: 'rate-limit.missing-headers',
+          component: 'response-header:x-ratelimit-limit',
+          route: endpoint.path,
+          method: endpoint.method,
           pluginId: this.id,
           endpointId: endpoint.id,
           affectedUrl: `${endpoint.method} ${url}`,

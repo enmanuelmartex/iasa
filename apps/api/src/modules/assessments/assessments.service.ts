@@ -8,9 +8,10 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Observable, Subject } from 'rxjs';
+import { concat, Observable, of, Subject } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
+import { ScoringService } from '../scoring/scoring.service';
 import { RunAssessmentDto } from './dto/run-assessment.dto';
 
 @Injectable()
@@ -23,6 +24,7 @@ export class AssessmentsService {
     @InjectQueue('scanner') private scannerQueue: Queue,
     private eventEmitter: EventEmitter2,
     private pluginRegistry: PluginRegistryService,
+    private scoring: ScoringService,
   ) {
     this.eventEmitter.on('scanner.progress', (data) => {
       this.emitProgress(data.assessmentId, data);
@@ -38,7 +40,9 @@ export class AssessmentsService {
       include: {
         project: { select: { id: true, name: true, baseUrl: true } },
         summary: true,
-        _count: { select: { findings: true } },
+        // Detections belonging to this scan. Not the project's issue count:
+        // a scan reports what it observed, the project reports what is open.
+        _count: { select: { occurrences: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -51,8 +55,22 @@ export class AssessmentsService {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
         config: true,
         summary: true,
-        findings: {
-          orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
+        // This scan's detections, each linked to the persistent issue it
+        // belongs to so the UI can offer "open the issue" from a scan result.
+        occurrences: {
+          orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
+          include: {
+            issue: {
+              select: {
+                id: true,
+                status: true,
+                firstSeenAt: true,
+                lastSeenAt: true,
+                occurrenceCount: true,
+                reopenCount: true,
+              },
+            },
+          },
         },
         reports: true,
         logs: {
@@ -188,7 +206,7 @@ export class AssessmentsService {
   async streamProgress(assessmentId: string, userId: string): Promise<Observable<MessageEvent>> {
     const assessment = await this.prisma.assessment.findFirst({
       where: { id: assessmentId, project: { userId } },
-      select: { id: true },
+      select: { id: true, status: true, progress: true, currentStep: true },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
 
@@ -202,7 +220,18 @@ export class AssessmentsService {
       }
     }, 10 * 60 * 1000);
 
-    return subject.asObservable();
+    const initial = {
+      data: {
+        assessmentId,
+        step: assessment.currentStep ?? assessment.status,
+        message: assessment.currentStep ?? assessment.status,
+        progress: assessment.progress,
+        completed: assessment.status === 'COMPLETED',
+        error: assessment.status === 'FAILED' ? assessment.currentStep ?? 'Assessment failed' : undefined,
+      },
+    } as MessageEvent;
+
+    return concat(of(initial), subject.asObservable());
   }
 
   private emitProgress(assessmentId: string, data: any) {
@@ -213,7 +242,9 @@ export class AssessmentsService {
   }
 
   async getDashboardStats(userId: string) {
-    const [projects, assessments, findings] = await Promise.all([
+    const [projects, totalAssessmentCount, assessments, findings] = await Promise.all([
+      // Real total, separate from the recent-scans window below.
+      this.prisma.assessment.count({ where: { project: { userId } } }),
       this.prisma.project.count({ where: { userId, isActive: true } }),
       this.prisma.assessment.findMany({
         where: { project: { userId }, status: 'COMPLETED' },
@@ -221,9 +252,19 @@ export class AssessmentsService {
         orderBy: { createdAt: 'desc' },
         take: 10,
       }),
-      this.prisma.finding.groupBy({
+      // Current risk, from persistent issues — NOT from every occurrence ever
+      // recorded. Counting occurrences made the dashboard totals grow with each
+      // rescan even when nothing about the API had changed.
+      //
+      // Excludes RESOLVED and FALSE_POSITIVE. ACCEPTED_RISK is deliberately
+      // included: accepting a risk is a business decision, not a fix, so the
+      // vulnerability still exists.
+      this.prisma.securityIssue.groupBy({
         by: ['severity'],
-        where: { assessment: { project: { userId } } },
+        where: {
+          project: { userId, isActive: true },
+          status: { in: ['OPEN', 'ACKNOWLEDGED', 'ACCEPTED_RISK'] },
+        },
         _count: { severity: true },
       }),
     ]);
@@ -237,18 +278,156 @@ export class AssessmentsService {
       {} as Record<string, number>,
     );
 
-    const avgScore =
-      assessments.length > 0
-        ? assessments.reduce((sum, a) => sum + (a.summary?.securityScore ?? 100), 0) /
-          assessments.length
-        : 100;
+    // Global posture: one score per PROJECT, from that project's most recent
+    // scorable scan — not an average over the last N scans.
+    //
+    // The previous implementation averaged the last 10 completed assessments
+    // with a `?? 100` fallback, so a project scanned ten times drowned out every
+    // other project, a scan with no summary counted as perfect, and a user with
+    // no scans at all saw 100/100. Unassessed is now `null`, never 100.
+    const postures = await Promise.all(
+      (await this.prisma.project.findMany({
+        where: { userId, isActive: true },
+        select: { id: true },
+      })).map((project) => this.scoring.getProjectPosture(project.id)),
+    );
+
+    const scored = postures
+      .map((posture) => posture.currentSecurityScore)
+      .filter((score): score is number => typeof score === 'number');
 
     return {
       totalProjects: projects,
-      totalAssessments: assessments.length,
-      avgSecurityScore: Math.round(avgScore),
+      // The real total, not the size of the recent window.
+      totalAssessments: totalAssessmentCount,
+      avgSecurityScore:
+        scored.length > 0
+          ? Math.round(scored.reduce((sum, score) => sum + score, 0) / scored.length)
+          : null,
+      scoredProjects: scored.length,
+      unassessedProjects: postures.length - scored.length,
       findings: findingsBySeverity,
       recentAssessments: assessments.slice(0, 5),
+      ...(await this.getScoreTrend(userId)),
+      ...(await this.getFindingsTrend(userId)),
+    };
+  }
+
+  /**
+   * Weekly findings trend for the "Findings by Severity" area chart: eight
+   * consecutive 7-day buckets ending today, each split by severity, plus the
+   * total of the eight weeks immediately before the window so the card can show
+   * a period-over-period comparison badge.
+   *
+   * Counts real detections (`FindingOccurrence`) by `detectedAt`, scoped to the
+   * user's active projects — the same scope as the current findings totals. No
+   * mock data: a week with no detections stays at zero.
+   */
+  private async getFindingsTrend(userId: string) {
+    const WEEKS = 8;
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    const now = new Date();
+    // Exclusive upper bound at the end of today keeps bucket edges stable within
+    // a day and includes everything detected so far today.
+    const windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const windowStart = new Date(windowEnd.getTime() - WEEKS * WEEK_MS);
+    const previousStart = new Date(windowEnd.getTime() - 2 * WEEKS * WEEK_MS);
+
+    const occurrences = await this.prisma.findingOccurrence.findMany({
+      where: {
+        issue: { project: { userId, isActive: true } },
+        detectedAt: { gte: previousStart, lt: windowEnd },
+      },
+      select: { detectedAt: true, severitySnapshot: true },
+    });
+
+    const weeks = Array.from({ length: WEEKS }, (_, index) => ({
+      weekStart: new Date(windowStart.getTime() + index * WEEK_MS).toISOString(),
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      info: 0,
+    }));
+
+    let findingsTrendPreviousTotal = 0;
+    for (const occurrence of occurrences) {
+      const time = new Date(occurrence.detectedAt).getTime();
+      if (time < windowStart.getTime()) {
+        findingsTrendPreviousTotal += 1;
+        continue;
+      }
+      const index = Math.floor((time - windowStart.getTime()) / WEEK_MS);
+      if (index < 0 || index >= WEEKS) continue;
+      const key = occurrence.severitySnapshot.toLowerCase();
+      if (key === 'critical' || key === 'high' || key === 'medium' || key === 'low' || key === 'info') {
+        weeks[index][key] += 1;
+      }
+    }
+
+    return { findingsTrend: weeks, findingsTrendPreviousTotal };
+  }
+
+  /**
+   * Security-score evolution across the CURRENT calendar year — Jan through Dec,
+   * always in that order, one bucket per month. The year is read from the clock,
+   * so the chart rolls over to the new year automatically on Jan 1 (never
+   * hardcoded).
+   *
+   * Each bucket carries the average `securityScore` of the assessments COMPLETED
+   * that month and how many completed. Real data only: a month with no scored
+   * assessment returns `averageScore: null` — never 0 — because a real 0 is the
+   * worst possible posture and must stay distinct from "no information". Future
+   * months of the current year are naturally empty (null) as no scan has run yet.
+   *
+   * `scoreTrendAverage` is the mean score across every scored assessment
+   * completed this year — the same period the chart represents.
+   */
+  private async getScoreTrend(userId: string) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const yearStart = new Date(year, 0, 1);
+    const yearEnd = new Date(year + 1, 0, 1);
+
+    const months = Array.from({ length: 12 }, (_, monthIndex) => ({
+      key: `${year}-${String(monthIndex + 1).padStart(2, '0')}`,
+      scoreSum: 0,
+      scoreCount: 0,
+      completedCount: 0,
+    }));
+
+    const completed = await this.prisma.assessment.findMany({
+      where: {
+        project: { userId },
+        status: 'COMPLETED',
+        completedAt: { gte: yearStart, lt: yearEnd },
+      },
+      select: { completedAt: true, summary: { select: { securityScore: true } } },
+    });
+
+    let yearScoreSum = 0;
+    let yearScoreCount = 0;
+    for (const assessment of completed) {
+      if (!assessment.completedAt) continue;
+      const bucket = months[new Date(assessment.completedAt).getMonth()];
+      if (!bucket) continue;
+      bucket.completedCount += 1;
+      const score = assessment.summary?.securityScore;
+      if (typeof score === 'number') {
+        bucket.scoreSum += score;
+        bucket.scoreCount += 1;
+        yearScoreSum += score;
+        yearScoreCount += 1;
+      }
+    }
+
+    return {
+      scoreTrend: months.map((month) => ({
+        month: month.key,
+        averageScore: month.scoreCount > 0 ? Math.round(month.scoreSum / month.scoreCount) : null,
+        completedCount: month.completedCount,
+      })),
+      scoreTrendAverage: yearScoreCount > 0 ? Math.round(yearScoreSum / yearScoreCount) : null,
     };
   }
 }

@@ -1,11 +1,8 @@
-import type { Table } from '@tanstack/react-table';
 import { IconX } from '@tabler/icons-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { DataTableViewOptions } from '@/components/tables/data-table-view-options';
 
-interface DataTableToolbarProps<TData> {
-  table: Table<TData>;
+interface DataTableToolbarProps {
   searchValue?: string;
   onSearchChange?: (_value: string) => void;
   searchPlaceholder?: string;
@@ -15,8 +12,7 @@ interface DataTableToolbarProps<TData> {
   actions?: React.ReactNode;
 }
 
-export function DataTableToolbar<TData>({
-  table,
+export function DataTableToolbar({
   searchValue,
   onSearchChange,
   searchPlaceholder = 'Search…',
@@ -24,30 +20,27 @@ export function DataTableToolbar<TData>({
   onResetFilters,
   filters,
   actions,
-}: DataTableToolbarProps<TData>) {
+}: DataTableToolbarProps) {
   return (
-    <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-1 flex-wrap items-center gap-2">
         {onSearchChange && (
           <Input
             value={searchValue ?? ''}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={searchPlaceholder}
-            className="h-8 w-full sm:w-56"
+            className="h-9 w-full border-border/70 bg-card shadow-none sm:w-64"
           />
         )}
         {filters}
         {isFiltered && onResetFilters && (
-          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={onResetFilters}>
+          <Button variant="ghost" size="sm" className="h-9 px-2 text-muted-foreground" onClick={onResetFilters}>
             Reset
             <IconX className="h-3.5 w-3.5" />
           </Button>
         )}
       </div>
-      <div className="flex items-center gap-2">
-        {actions}
-        <DataTableViewOptions table={table} />
-      </div>
+      {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
   );
 }

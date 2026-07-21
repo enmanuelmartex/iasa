@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import {
@@ -10,15 +11,17 @@ import {
   IconLayersLinked,
   IconPlug,
   IconShieldCheck,
+  IconSparkles,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import { assessmentsApi, pluginsApi, profilesApi } from '@/lib/api';
-import type { Assessment, Plugin, Project, ScanProfile } from '@/types';
+import { aiApi, assessmentsApi, pluginsApi, profilesApi } from '@/lib/api';
+import type { AiProviderStatus, Assessment, Plugin, Project, ScanProfile } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
 import {
   Sheet,
   SheetContent,
@@ -41,11 +44,13 @@ function getErrorMessage(error: unknown) {
 }
 
 export function RunAssessmentSheet({ project }: { project: Project }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ExecutionMode>('all');
   const [profileId, setProfileId] = useState('');
   const [manualPluginIds, setManualPluginIds] = useState<string[]>([]);
+  const [enableAiAnalysis, setEnableAiAnalysis] = useState(true);
   const [submitError, setSubmitError] = useState('');
 
   const pluginsQuery = useQuery<Plugin[]>({
@@ -54,9 +59,16 @@ export function RunAssessmentSheet({ project }: { project: Project }) {
     enabled: open,
   });
   const profilesQuery = useQuery<ScanProfile[]>({
-    queryKey: ['plugin-profiles'],
+    queryKey: ['scan-profiles'],
     queryFn: profilesApi.list,
     enabled: open,
+    refetchOnMount: 'always',
+  });
+  const aiStatusQuery = useQuery<AiProviderStatus>({
+    queryKey: ['ai-status'],
+    queryFn: aiApi.status,
+    enabled: open,
+    staleTime: 30_000,
   });
 
   const plugins = pluginsQuery.data ?? [];
@@ -84,6 +96,7 @@ export function RunAssessmentSheet({ project }: { project: Project }) {
       executionMode: mode,
       scanProfileId: mode === 'profile' ? profileId : undefined,
       manualPlugins: mode === 'manual' ? manualPluginIds : undefined,
+      enableAiAnalysis,
     }),
     onMutate: () => setSubmitError(''),
     onSuccess: (assessment) => {
@@ -94,21 +107,7 @@ export function RunAssessmentSheet({ project }: { project: Project }) {
       queryClient.invalidateQueries({ queryKey: ['assessments'] });
       setOpen(false);
       toast.success('Assessment queued', { description: `${selectedPlugins.length} plugins will run against ${project.name}.` });
-
-      const token = window.localStorage.getItem('iasa_token');
-      if (token) {
-        const stream = assessmentsApi.streamProgress(assessment.id, token);
-        stream.onmessage = (event) => {
-          queryClient.invalidateQueries({ queryKey: ['projects', project.id] });
-          try {
-            const progress = JSON.parse(event.data) as { completed?: boolean; error?: string };
-            if (progress.completed || progress.error) stream.close();
-          } catch {
-            // A malformed progress event must not interrupt the assessment itself.
-          }
-        };
-        stream.onerror = () => stream.close();
-      }
+      router.push(`/assessments/${assessment.id}`);
     },
     onError: (error) => setSubmitError(getErrorMessage(error)),
   });
@@ -118,6 +117,7 @@ export function RunAssessmentSheet({ project }: { project: Project }) {
       setMode('all');
       setProfileId('');
       setManualPluginIds([]);
+      setEnableAiAnalysis(true);
       setSubmitError('');
     }
   }, [open]);
@@ -198,9 +198,19 @@ export function RunAssessmentSheet({ project }: { project: Project }) {
               </section>
             )}
 
+            <section className="rounded-lg border p-4" aria-labelledby="ai-analysis-heading">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex gap-3"><IconSparkles className="mt-0.5 size-5 text-primary" /><div><h3 id="ai-analysis-heading" className="text-sm font-medium">AI security enrichment</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">Adds technical root cause, business impact, confidence, false-positive risk and secure remediation guidance to eligible findings.</p></div></div>
+                <Switch checked={enableAiAnalysis} onCheckedChange={setEnableAiAnalysis} aria-label="Enable AI security enrichment" />
+              </div>
+              <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+                {aiStatusQuery.isLoading ? 'Checking AI provider…' : aiStatusQuery.data?.available ? <span><strong className="text-foreground">{aiStatusQuery.data.provider}</strong> · {aiStatusQuery.data.model} is ready</span> : <span>No active provider is available. Configure one in <Link href="/settings?tab=ai" className="text-primary hover:underline">AI settings</Link>; the scan will continue without AI.</span>}
+              </div>
+            </section>
+
             <section aria-labelledby="summary-heading" className="rounded-lg border bg-muted/30 p-4">
               <h3 id="summary-heading" className="text-sm font-medium">Run summary</h3>
-              <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs"><dt className="text-muted-foreground">Project</dt><dd className="text-right font-medium">{project.name}</dd><dt className="text-muted-foreground">Mode</dt><dd className="text-right font-medium">{{ all: 'All enabled', profile: 'Custom profile', manual: 'Individual plugins' }[mode]}</dd>{selectedProfile && <><dt className="text-muted-foreground">Profile</dt><dd className="text-right font-medium">{selectedProfile.name}</dd></>}<dt className="text-muted-foreground">Plugins</dt><dd className="text-right font-medium">{selectedPlugins.length}</dd><dt className="text-muted-foreground">Endpoints</dt><dd className="text-right font-medium">{project.apiSpec?.endpoints?.length ?? 0}</dd><dt className="text-muted-foreground">Environment</dt><dd className="text-right font-medium">{project.environment}</dd></dl>
+              <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs"><dt className="text-muted-foreground">Project</dt><dd className="text-right font-medium">{project.name}</dd><dt className="text-muted-foreground">Mode</dt><dd className="text-right font-medium">{{ all: 'All enabled', profile: 'Custom profile', manual: 'Individual plugins' }[mode]}</dd>{selectedProfile && <><dt className="text-muted-foreground">Profile</dt><dd className="text-right font-medium">{selectedProfile.name}</dd></>}<dt className="text-muted-foreground">Plugins</dt><dd className="text-right font-medium">{selectedPlugins.length}</dd><dt className="text-muted-foreground">Endpoints</dt><dd className="text-right font-medium">{project.apiSpec?.endpoints?.length ?? 0}</dd><dt className="text-muted-foreground">Environment</dt><dd className="text-right font-medium">{project.environment}</dd><dt className="text-muted-foreground">AI enrichment</dt><dd className="text-right font-medium">{enableAiAnalysis ? 'Enabled' : 'Disabled'}</dd></dl>
               {selectedPlugins.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{selectedPlugins.map((plugin) => <Badge key={plugin.id} variant="secondary">{plugin.name}</Badge>)}</div>}
               <p className="mt-3 flex gap-2 border-t pt-3 text-xs leading-5 text-muted-foreground"><IconCheck className="mt-0.5 size-4 shrink-0" />The assessment may take several minutes. You can follow its status in Recent assessments.</p>
             </section>

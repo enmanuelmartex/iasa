@@ -14,7 +14,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ReportsService } from './reports.service';
 import { ReportGeneratorService } from './report-generator.service';
 
-type ReportFormat = 'JSON' | 'HTML' | 'MARKDOWN' | 'SARIF';
+type ReportFormat = 'PDF' | 'JSON' | 'HTML' | 'MARKDOWN' | 'SARIF';
 type ReportType = 'TECHNICAL' | 'EXECUTIVE' | 'DEVELOPER' | 'COMPLIANCE';
 
 @ApiTags('Reports')
@@ -55,11 +55,16 @@ export class ReportsController {
     const projectName = ((assessment.project as any).name ?? 'report').replace(/[^a-z0-9]/gi, '-');
     const ts = new Date().toISOString().split('T')[0];
 
-    let content: string;
+    let content: string | Buffer;
     let contentType: string;
     let filename: string;
 
     switch (format) {
+      case 'PDF':
+        content = await this.reportGenerator.generatePdf(assessment, type);
+        contentType = 'application/pdf';
+        filename = `iasa-${projectName}-${ts}.pdf`;
+        break;
       case 'JSON':
         content = this.reportGenerator.generateJson(assessment);
         contentType = 'application/json';
@@ -88,12 +93,12 @@ export class ReportsController {
       type,
       format,
       title: `${type} — ${(assessment.project as any).name} — ${ts}`,
-      fileSize: Buffer.byteLength(content, 'utf8'),
+      fileSize: Buffer.isBuffer(content) ? content.length : Buffer.byteLength(content, 'utf8'),
     });
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', Buffer.byteLength(content, 'utf8'));
+    res.setHeader('Content-Length', Buffer.isBuffer(content) ? content.length : Buffer.byteLength(content, 'utf8'));
     res.send(content);
   }
 

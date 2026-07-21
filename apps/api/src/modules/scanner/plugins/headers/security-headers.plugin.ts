@@ -11,6 +11,13 @@ interface HeaderCheck {
   remediation: string;
   badValues?: string[];
   goodExample?: string;
+  /**
+   * Rule identifiers, declared explicitly rather than slugified from the title.
+   * They are part of the issue fingerprint, so rewording a message must not
+   * change which issue it refers to.
+   */
+  missingRuleId?: string;
+  disclosureRuleId?: string;
 }
 
 export class SecurityHeadersPlugin extends BasePlugin {
@@ -30,11 +37,23 @@ export class SecurityHeadersPlugin extends BasePlugin {
     permissions: ['http:read', 'findings:write'],
     minimumCoreVersion: '1.0.0',
     isBuiltin: true,
+    ruleNamespace: 'headers',
+    ruleIds: [
+      'headers.missing-hsts',
+      'headers.missing-x-content-type-options',
+      'headers.missing-x-frame-options',
+      'headers.missing-content-security-policy',
+      'headers.missing-referrer-policy',
+      'headers.missing-cache-control',
+      'headers.discloses-x-powered-by',
+      'headers.discloses-server',
+    ],
   };
 
   private readonly checks: HeaderCheck[] = [
     {
       header: 'strict-transport-security',
+      missingRuleId: 'headers.missing-hsts',
       required: true,
       severity: 'HIGH',
       cvssScore: 7.4,
@@ -44,6 +63,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     },
     {
       header: 'x-content-type-options',
+      missingRuleId: 'headers.missing-x-content-type-options',
       required: true,
       severity: 'MEDIUM',
       cvssScore: 5.1,
@@ -53,6 +73,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     },
     {
       header: 'x-frame-options',
+      missingRuleId: 'headers.missing-x-frame-options',
       required: true,
       severity: 'MEDIUM',
       cvssScore: 4.3,
@@ -62,6 +83,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     },
     {
       header: 'content-security-policy',
+      missingRuleId: 'headers.missing-content-security-policy',
       required: false,
       severity: 'MEDIUM',
       cvssScore: 5.4,
@@ -71,6 +93,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     },
     {
       header: 'referrer-policy',
+      missingRuleId: 'headers.missing-referrer-policy',
       required: false,
       severity: 'LOW',
       cvssScore: 3.1,
@@ -80,6 +103,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     },
     {
       header: 'cache-control',
+      missingRuleId: 'headers.missing-cache-control',
       required: true,
       severity: 'MEDIUM',
       cvssScore: 5.3,
@@ -89,6 +113,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     },
     {
       header: 'x-powered-by',
+      disclosureRuleId: 'headers.discloses-x-powered-by',
       required: false,
       severity: 'INFO',
       cvssScore: 2.1,
@@ -98,6 +123,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     },
     {
       header: 'server',
+      disclosureRuleId: 'headers.discloses-server',
       required: false,
       severity: 'INFO',
       cvssScore: 2.1,
@@ -148,7 +174,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     for (const check of this.checks) {
       const headerValue = lowerHeaders[check.header];
 
-      if (!headerValue && check.required) {
+      if (!headerValue && check.required && check.missingRuleId) {
         findings.push({
           title: `Missing Security Header: ${check.header.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('-')}`,
           category: 'Security Misconfiguration',
@@ -157,6 +183,10 @@ export class SecurityHeadersPlugin extends BasePlugin {
           owaspCategory: 'API8:2023',
           cweId: 'CWE-693',
           pluginId: this.id,
+          ruleId: check.missingRuleId,
+          component: `response-header:${check.header}`,
+          route: testEndpoint.path,
+          method: testEndpoint.method,
           endpointId: testEndpoint.id,
           affectedUrl: url,
           description: check.description,
@@ -177,7 +207,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
             'https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html',
           ],
         });
-      } else if (headerValue && check.badValues) {
+      } else if (headerValue && check.badValues && check.disclosureRuleId) {
         const valueLower = headerValue.toString().toLowerCase();
         const isBad = check.badValues.some((bad) => valueLower.includes(bad));
         if (isBad) {
@@ -189,6 +219,10 @@ export class SecurityHeadersPlugin extends BasePlugin {
             owaspCategory: 'API8:2023',
             cweId: 'CWE-200',
             pluginId: this.id,
+            ruleId: check.disclosureRuleId,
+            component: `response-header:${check.header}`,
+            route: testEndpoint.path,
+            method: testEndpoint.method,
             endpointId: testEndpoint.id,
             affectedUrl: url,
             description: `${check.header}: ${headerValue} — ${check.description}`,

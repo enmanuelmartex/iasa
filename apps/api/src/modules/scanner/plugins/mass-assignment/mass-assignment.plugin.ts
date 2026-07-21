@@ -19,6 +19,10 @@ export class MassAssignmentPlugin extends BasePlugin {
     permissions: ['http:write', 'findings:write'],
     minimumCoreVersion: '1.0.0',
     isBuiltin: true,
+    ruleNamespace: 'mass-assignment',
+    ruleIds: [
+      'mass-assignment.unrestricted-property-binding',
+    ],
   };
 
   private readonly privilegedFields = [
@@ -88,6 +92,10 @@ export class MassAssignmentPlugin extends BasePlugin {
               cvssScore: 8.8,
               owaspCategory: 'API3:2023',
               cweId: 'CWE-915',
+              ruleId: 'mass-assignment.unrestricted-property-binding',
+              component: 'request-body',
+              route: endpoint.path,
+              method: endpoint.method,
               pluginId: this.id,
               endpointId: endpoint.id,
               affectedUrl: `${endpoint.method} ${url}`,

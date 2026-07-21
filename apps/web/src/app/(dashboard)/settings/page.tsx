@@ -10,10 +10,6 @@ import {
   IconBell,
   IconInfoCircle,
   IconChevronRight,
-  IconCopy,
-  IconCheck,
-  IconPlus,
-  IconTrash,
   IconEye,
   IconEyeOff,
   IconTerminal2,
@@ -42,7 +38,6 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DeleteConfirmationDialog } from '@/components/shared/delete-confirmation-dialog';
 
 type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'system' | 'about' | 'users' | 'audit-logs';
 
@@ -360,151 +355,49 @@ function SecurityTab() {
 }
 
 // ─── TOKENS ───────────────────────────────────────────────────────────────────
-
-const MOCK_TOKENS = [
-  {
-    id: '1',
-    name: 'CI/CD Pipeline',
-    preview: 'iasa_••••••••••••efg3',
-    lastUsedAt: new Date(Date.now() - 3_600_000).toISOString(),
-    createdAt: new Date(Date.now() - 7 * 86_400_000).toISOString(),
-    scopes: ['read', 'write'],
-  },
-  {
-    id: '2',
-    name: 'Monitoring Script',
-    preview: 'iasa_••••••••••••mno7',
-    lastUsedAt: new Date(Date.now() - 86_400_000).toISOString(),
-    createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
-    scopes: ['read'],
-  },
-];
+//
+// API tokens have no backend yet. The `ApiKey` model exists in the Prisma schema
+// (name, keyHash, keyPreview, scopes, expiresAt, lastUsedAt) but no controller or
+// service reads it, so there is no route to create, list or revoke a token.
+//
+// This tab previously rendered MOCK_TOKENS: two hardcoded entries with client-only
+// create/revoke, whose "copy" button copied the masked placeholder rather than a
+// real credential. Showing a working-looking token manager that issues nothing is
+// worse than showing nothing, so it is replaced by an explicit unavailable state
+// until the endpoints exist (Phase 7).
 
 function TokensTab() {
-  const [copied, setCopied] = useState<string | null>(null);
-  const [tokens, setTokens] = useState(MOCK_TOKENS);
-  const [newName, setNewName] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-
-  function copyToken(preview: string) {
-    navigator.clipboard.writeText(preview);
-    setCopied(preview);
-    setTimeout(() => setCopied(null), 2000);
-    toast.success('Token copied to clipboard');
-  }
-
-  function createToken() {
-    if (!newName.trim()) return;
-    const newToken = {
-      id: String(Date.now()),
-      name: newName,
-      preview: `iasa_${'•'.repeat(12)}${Math.random().toString(36).slice(-4)}`,
-      lastUsedAt: null as any,
-      createdAt: new Date().toISOString(),
-      scopes: ['read', 'write'],
-    };
-    setTokens((prev) => [newToken, ...prev]);
-    setNewName('');
-    setShowCreate(false);
-    toast.success('API token created');
-  }
-
-  function deleteToken(id: string) {
-    setTokens((prev) => prev.filter((t) => t.id !== id));
-    toast.success('Token revoked');
-  }
-
   return (
     <div className="space-y-6">
       <Section
         title="API Tokens"
-        description="Manage tokens for programmatic access and integrations"
-        action={
-          <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
-            <IconPlus className="h-3.5 w-3.5" />
-            New Token
-          </Button>
-        }
+        description="Tokens for programmatic access and integrations"
       >
-        {showCreate && (
-          <div className="mb-4 rounded-xl border border-border bg-muted/60 p-4">
-            <p className="mb-3 text-sm font-medium text-foreground">Create new token</p>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Token name (e.g. CI/CD Pipeline)"
-                onKeyDown={(e) => e.key === 'Enter' && createToken()}
-                autoFocus
-                className="flex-1"
-              />
-              <div className="flex gap-2">
-                <Button onClick={createToken}>Create</Button>
-                <Button variant="outline" onClick={() => setShowCreate(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
+        <div className="flex flex-col items-center py-10 text-center">
+          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+            <IconKey className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           </div>
-        )}
-
-        {tokens.length === 0 ? (
-          <div className="py-8 text-center">
-            <IconKey className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">No API tokens yet</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {tokens.map((token) => (
-              <div key={token.id} className="flex items-center gap-4 py-3.5">
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
-                  <IconKey className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">{token.name}</p>
-                  <div className="mt-0.5 flex items-center gap-3">
-                    <span className="font-mono text-xs text-muted-foreground">{token.preview}</span>
-                    {token.scopes.map((s) => (
-                      <span key={s} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex-shrink-0 text-right text-xs text-muted-foreground">
-                  <p>{token.lastUsedAt ? `Used ${new Date(token.lastUsedAt).toLocaleDateString()}` : 'Never used'}</p>
-                  <p className="mt-0.5 text-muted-foreground/70">Created {new Date(token.createdAt).toLocaleDateString()}</p>
-                </div>
-                <div className="flex flex-shrink-0 items-center gap-1.5">
-                  <button
-                    onClick={() => copyToken(token.preview)}
-                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    title="Copy token"
-                  >
-                    {copied === token.preview ? <IconCheck className="h-3.5 w-3.5 text-success" /> : <IconCopy className="h-3.5 w-3.5" />}
-                  </button>
-                  <DeleteConfirmationDialog
-                    title={`Revoke “${token.name}”?`}
-                    description="This API token will stop working immediately. This action cannot be undone."
-                    confirmLabel="Revoke"
-                    onConfirm={() => deleteToken(token.id)}
-                    trigger={<Button type="button" variant="ghost" size="icon" className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={`Revoke ${token.name}`} title="Revoke token"><IconTrash /></Button>}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+          <p className="text-sm font-medium text-foreground">API tokens are not available yet</p>
+          <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
+            Programmatic access is not implemented in this build. Once available you will be
+            able to create named tokens with scopes and an expiry, see when each was last used,
+            and revoke them at any time.
+          </p>
+          <p className="mt-3 text-xs text-muted-foreground/80">
+            Use your session in the web interface in the meantime.
+          </p>
+        </div>
       </Section>
 
       <Card>
         <CardContent className="flex gap-3 p-4">
-          <IconLock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          <IconLock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
           <div>
-            <p className="mb-1 text-xs font-medium text-foreground">Token Security</p>
+            <p className="mb-1 text-xs font-medium text-foreground">Token security</p>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              API tokens grant programmatic access to IASA. Store them securely in environment variables — never commit to version control.
-              Tokens can be revoked at any time.
+              When API tokens ship, the full value will be shown once at creation and never
+              again — only a masked preview is stored. Keep tokens in environment variables,
+              never in version control, and revoke any token you suspect has been exposed.
             </p>
           </div>
         </CardContent>

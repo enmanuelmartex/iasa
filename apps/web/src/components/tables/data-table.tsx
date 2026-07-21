@@ -5,7 +5,6 @@ import {
   type ColumnDef,
   type SortingState,
   type ColumnFiltersState,
-  type VisibilityState,
   type RowSelectionState,
   flexRender,
   getCoreRowModel,
@@ -81,7 +80,6 @@ export function DataTable<TData extends object, TValue>({
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = React.useState('');
 
@@ -124,13 +122,12 @@ export function DataTable<TData extends object, TValue>({
   const table = useReactTable({
     data,
     columns: resolvedColumns,
-    state: { sorting, columnFilters, columnVisibility, rowSelection, globalFilter },
+    state: { sorting, columnFilters, rowSelection, globalFilter },
     ...(getRowId ? { getRowId } : {}),
     enableRowSelection,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
-    onColumnVisibilityChange: setColumnVisibility,
     onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -211,10 +208,11 @@ export function DataTable<TData extends object, TValue>({
   );
 
   return (
-    <div className={cn('rounded-xl border border-border bg-card', className)}>
+    <div className={cn('space-y-3', className)}>
+      {/* Filters live above the table, not inside its card, so the surface below
+          holds data only — same arrangement as the projects listing. */}
       {!hideToolbar && (
         <DataTableToolbar
-          table={table}
           searchValue={globalFilter}
           onSearchChange={setGlobalFilter}
           searchPlaceholder={searchPlaceholder}
@@ -231,13 +229,27 @@ export function DataTable<TData extends object, TValue>({
           }
         />
       )}
-      <div className="max-h-[65vh] overflow-auto border-t border-border">
+      {/* No card around the table: plain rows separated by hairlines, per the
+          shadcn table pattern. The page background shows through. */}
+      <div>
+        <div className="max-h-[65vh] overflow-auto">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead
+                    key={header.id}
+                    aria-sort={
+                      header.column.getIsSorted() === 'asc'
+                        ? 'ascending'
+                        : header.column.getIsSorted() === 'desc'
+                          ? 'descending'
+                          : header.column.getCanSort()
+                            ? 'none'
+                            : undefined
+                    }
+                  >
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                   </TableHead>
                 ))}
@@ -259,8 +271,9 @@ export function DataTable<TData extends object, TValue>({
             body
           )}
         </Table>
+        </div>
+        {!hidePagination && !enableRowOrder && <DataTablePagination table={table} />}
       </div>
-      {!hidePagination && !enableRowOrder && <DataTablePagination table={table} />}
     </div>
   );
 }

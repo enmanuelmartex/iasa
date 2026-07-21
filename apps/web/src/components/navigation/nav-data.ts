@@ -5,7 +5,6 @@ import {
   IconActivity,
   IconBug,
   IconFileText,
-  IconCoin,
   IconPuzzle,
   IconStack2,
   IconSettings,
@@ -40,9 +39,8 @@ export const NAV_MAIN: NavLeaf[] = [
   { title: 'Dashboard', url: '/dashboard', icon: IconLayoutDashboard, exact: true },
   { title: 'Projects', url: '/projects', icon: IconFolder },
   { title: 'Assessments', url: '/assessments', icon: IconActivity },
-  { title: 'Findings', url: '/findings', icon: IconBug },
+  { title: 'Issues', url: '/issues', icon: IconBug },
   { title: 'Reports', url: '/reports', icon: IconFileText },
-  { title: 'Finance', url: '/finance', icon: IconCoin },
 ];
 
 export const NAV_COLLAPSIBLE: NavGroup[] = [

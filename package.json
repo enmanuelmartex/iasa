@@ -17,7 +17,6 @@
     "start": "concurrently --names \"API,WEB\" \"bun run start:api\" \"bun run start:web\"",
     "start:api": "bun run --cwd apps/api start:prod",
     "start:web": "bun run --cwd apps/web start",
-    "db:push": "bun run --cwd apps/api db:push",
     "db:migrate": "bun run --cwd apps/api db:migrate",
     "db:migrate:prod": "bun run --cwd apps/api db:migrate:prod",
     "db:studio": "bun run --cwd apps/api db:studio",

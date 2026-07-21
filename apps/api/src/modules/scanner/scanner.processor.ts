@@ -6,6 +6,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ScannerService } from './scanner.service';
 import { ScanContext, BasePlugin } from './types/scanner.types';
 import { resolveTargetUrl } from '../../common/utils/url-resolver.util';
+import { createHash } from 'crypto';
+import { CryptoService } from '../../common/crypto/crypto.service';
+import { decryptAuthFields } from '../../common/crypto/auth-config.crypto';
+import { IssueLifecycleService } from '../issues/issue-lifecycle.service';
+import { ScoringService } from '../scoring/scoring.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { ReportGeneratorService } from '../reports/report-generator.service';
 import { ReportsService } from '../reports/reports.service';
@@ -28,8 +33,29 @@ export class ScannerProcessor extends WorkerHost {
     private pluginRegistry:   PluginRegistryService,
     private reportGenerator:  ReportGeneratorService,
     private reportsService:   ReportsService,
+    private crypto:           CryptoService,
+    private issueLifecycle:   IssueLifecycleService,
+    private scoring:          ScoringService,
   ) {
     super();
+  }
+
+  /**
+   * Stable hash of the effective scan configuration, stored on each occurrence
+   * so a detection can be tied to the exact settings that produced it.
+   * Deterministic: keys are sorted, so a retry produces the same hash.
+   */
+  private hashConfig(config: any): string | undefined {
+    if (!config) return undefined;
+    const relevant = {
+      executionMode: config.executionMode,
+      resolvedPlugins: [...(config.resolvedPlugins ?? [])].sort(),
+      maxRequestsPerEndpoint: config.maxRequestsPerEndpoint,
+      requestDelayMs: config.requestDelayMs,
+      timeoutMs: config.timeoutMs,
+      enableAiAnalysis: config.enableAiAnalysis,
+    };
+    return createHash('sha256').update(JSON.stringify(relevant), 'utf8').digest('hex');
   }
 
   async process(job: Job<JobData>) {
@@ -95,19 +121,24 @@ export class ScannerProcessor extends WorkerHost {
 
       await this.addLog(assessmentId, 'info', 'core', `Found ${spec.endpoints.length} endpoints to test`);
 
+      const authConfig = decryptAuthFields(this.crypto, spec.authConfig as any);
+
       const context: ScanContext = {
         assessmentId,
         projectId,
         baseUrl: resolveTargetUrl(project.baseUrl ?? ''),
+        // Credentials are encrypted at rest; decrypt at the point of use only.
+        // The plaintext lives in this in-memory context and is never persisted
+        // or logged — BasePlugin redacts it out of all evidence.
         auth: {
-          type:           (spec.authConfig?.type as any) || 'NONE',
-          token:          spec.authConfig?.token        ?? undefined,
-          username:       spec.authConfig?.username     ?? undefined,
-          password:       spec.authConfig?.password     ?? undefined,
-          apiKey:         spec.authConfig?.apiKey       ?? undefined,
-          apiKeyHeader:   spec.authConfig?.apiKeyHeader ?? undefined,
-          apiKeyLocation: (spec.authConfig?.apiKeyLocation as any) ?? 'header',
-          customHeaders:  (spec.authConfig?.customHeaders as any)  ?? undefined,
+          type:           (authConfig?.type as any) || 'NONE',
+          token:          authConfig?.token        ?? undefined,
+          username:       authConfig?.username     ?? undefined,
+          password:       authConfig?.password     ?? undefined,
+          apiKey:         authConfig?.apiKey       ?? undefined,
+          apiKeyHeader:   authConfig?.apiKeyHeader ?? undefined,
+          apiKeyLocation: (authConfig?.apiKeyLocation as any) ?? 'header',
+          customHeaders:  (authConfig?.customHeaders as any)  ?? undefined,
         },
         endpoints: spec.endpoints.map((e) => ({
           id:          e.id,
@@ -130,8 +161,14 @@ export class ScannerProcessor extends WorkerHost {
         },
       };
 
-      await this.prisma.assessmentSummary.create({
-        data: { assessmentId, totalEndpoints: spec.endpoints.length, testedEndpoints: 0 },
+      // Upsert, not create. `assessmentId` is unique, so on a BullMQ retry a
+      // bare create raises a unique-constraint violation that replaces the
+      // ORIGINAL failure in the logs — the real cause of the first failure was
+      // being masked by a symptom of the retry.
+      await this.prisma.assessmentSummary.upsert({
+        where: { assessmentId },
+        update: { totalEndpoints: spec.endpoints.length },
+        create: { assessmentId, totalEndpoints: spec.endpoints.length, testedEndpoints: 0 },
       });
 
       // ── Execute all enabled plugins + AI analysis ─────────────────────────
@@ -153,40 +190,56 @@ export class ScannerProcessor extends WorkerHost {
         progress: 92, message: `Saving ${findings.length} findings...`, findingsCount: findings.length,
       });
 
-      // ── Persist findings ──────────────────────────────────────────────────
-      await Promise.all(
-        findings.map((f) =>
-          this.prisma.finding.create({
-            data: {
-              assessmentId,
-              endpointId:   f.endpointId || null,
-              title:        f.title,
-              category:     f.category,
-              severity:     f.severity,
-              cvssScore:    f.cvssScore,
-              cvssVector:   f.cvssVector,
-              owaspCategory: f.owaspCategory,
-              cweId:        f.cweId,
-              pluginId:     f.pluginId,
-              affectedUrl:  f.affectedUrl,
-              description:  f.description,
-              impact:       f.impact,
-              likelihood:   f.likelihood,
-              riskScore:    f.riskScore,
-              evidence:     f.evidence as any,
-              httpRequest:  f.httpRequest,
-              httpResponse: f.httpResponse,
-              remediation:  f.remediation,
-              references:   f.references || [],
-              aiAnalysis:   f.aiAnalysis as any ?? undefined,
-            },
-          }),
-        ),
+      // ── Persist detections as issues + occurrences ────────────────────────
+      //
+      // Replaces the previous `Promise.all(findings.map(create))`, which had no
+      // identity, no deduplication and no idempotency: a retry inserted every
+      // finding a second time, and a rescan created a fresh OPEN row for a
+      // vulnerability that had already been triaged.
+      const detectedAt = new Date();
+      const lifecycle = await this.issueLifecycle.persistScanResults({
+        projectId,
+        assessmentId,
+        findings,
+        detectedAt,
+        assessmentConfigHash: this.hashConfig(assessmentConfig),
+        specVersion: spec.version ?? undefined,
+        scope: {
+          // Only checks that ran to completion may resolve an issue.
+          successfulPlugins: pluginPlan.executed.filter((id) => !pluginPlan.failed.includes(id)),
+          failedPlugins: pluginPlan.failed,
+          skippedPlugins: pluginPlan.skipped,
+          pluginVersions: pluginPlan.versions,
+        },
+      });
+
+      await this.addLog(
+        assessmentId,
+        'info',
+        'core',
+        `Persisted ${lifecycle.occurrencesCreated} detections — ` +
+          `${lifecycle.issuesCreated} new, ${lifecycle.issuesRecurring} recurring, ` +
+          `${lifecycle.issuesReopened} reopened, ${lifecycle.issuesResolved} resolved, ` +
+          `${lifecycle.issuesNotTested} not tested` +
+          (lifecycle.occurrencesSkipped > 0
+            ? ` (${lifecycle.occurrencesSkipped} already recorded by a previous attempt)`
+            : ''),
       );
 
       // ── Compute and persist summary ───────────────────────────────────────
       const summary = this.calculateSummary(findings, spec.endpoints.length);
 
+      // Execution scope. Coverage answers "how much did we look at?" and is
+      // deliberately kept separate from the score, which answers "how bad is
+      // what we found?".
+      const plannedChecks    = pluginPlan.executed.length;
+      const failedChecks     = pluginPlan.failed.length;
+      const successfulChecks = plannedChecks - failedChecks;
+      const skippedChecks    = pluginPlan.skipped.length;
+
+      // Counts and execution scope only. The score itself is computed by
+      // ScoringService below, from the persisted occurrences — there is exactly
+      // one scoring implementation and the processor is not it.
       await this.prisma.assessmentSummary.update({
         where: { assessmentId },
         data: {
@@ -197,7 +250,11 @@ export class ScannerProcessor extends WorkerHost {
           mediumCount:     summary.medium,
           lowCount:        summary.low,
           infoCount:       summary.info,
-          securityScore:   summary.score,
+          plannedChecks,
+          successfulChecks,
+          failedChecks,
+          skippedChecks,
+          executionErrors: failedChecks,
           riskLevel:       summary.riskLevel,
           owaspCoverage:   summary.owaspCoverage,
           pluginResults:   pluginPlan as any,
@@ -218,7 +275,21 @@ export class ScannerProcessor extends WorkerHost {
         },
       });
 
-      // Auto-generate a JSON report so the reports list is populated immediately
+      // Scored after the status is COMPLETED, because the engine refuses to
+      // score a non-terminal assessment. Derived entirely from persisted data,
+      // so a retry recomputes the same snapshot rather than drifting.
+      const score = await this.scoring.scoreAssessment(assessmentId);
+      await this.addLog(
+        assessmentId,
+        'info',
+        'core',
+        score.securityScore === null
+          ? `Score unavailable: ${score.reasons.join(' ')}`
+          : `Score ${score.securityScore}/100 (${score.scoreStatus}, ${score.scoreVersion}) — ` +
+            `coverage ${score.coveragePercent ?? 'unknown'}%`,
+      );
+
+      // PDF is the canonical automatic artifact; other formats remain on-demand exports.
       this.autoGenerateReport(assessmentId, userId).catch((err) =>
         this.logger.warn(`Auto-report generation failed for ${assessmentId}: ${err.message}`),
       );
@@ -249,6 +320,23 @@ export class ScannerProcessor extends WorkerHost {
         where: { id: assessmentId },
         data: { status: 'FAILED', completedAt: new Date(), currentStep: `Failed: ${error.message}` },
       });
+
+      // A failed run must never leave a score behind. The schema default is
+      // already UNAVAILABLE with a null score, but the summary may have been
+      // partially updated before the failure, so clear it explicitly.
+      await this.prisma.assessmentSummary
+        .update({
+          where: { assessmentId },
+          data: {
+            securityScore: null,
+            scoreStatus: 'UNAVAILABLE',
+            scoreVersion: null,
+            scoreComputedAt: null,
+          },
+        })
+        .catch(() => {
+          // No summary row yet — the scan failed before one was created.
+        });
 
       await this.addLog(assessmentId, 'error', 'core', error.message);
 
@@ -289,24 +377,24 @@ export class ScannerProcessor extends WorkerHost {
       include: {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
         summary: true,
-        findings: {
-          orderBy: [{ severity: 'asc' }, { createdAt: 'desc' }],
+        occurrences: {
+          orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
           include: { endpoint: { select: { path: true, method: true } } },
         },
       },
     });
     if (!assessment) return;
 
-    const content = this.reportGenerator.generateJson(assessment);
+    const content = await this.reportGenerator.generatePdf(assessment, 'TECHNICAL');
     const projectName = (assessment.project as any).name ?? 'report';
     const ts = new Date().toISOString().split('T')[0];
 
     await this.reportsService.createRecord({
       assessmentId,
       type:     'TECHNICAL',
-      format:   'JSON',
-      title:    `Auto-generated JSON — ${projectName} — ${ts}`,
-      fileSize: Buffer.byteLength(content, 'utf8'),
+      format:   'PDF',
+      title:    `Automatic security report — ${projectName} — ${ts}`,
+      fileSize: content.length,
     });
   }
 

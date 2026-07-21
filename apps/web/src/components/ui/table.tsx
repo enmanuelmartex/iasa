@@ -12,7 +12,9 @@ Table.displayName = 'Table';
 
 const TableHeader = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes<HTMLTableSectionElement>>(
   ({ className, ...props }, ref) => (
-    <thead ref={ref} className={cn('sticky top-0 z-10 bg-card [&_tr]:border-b [&_tr]:border-border', className)} {...props} />
+    // bg keeps rows from showing through while the header is stuck; override it
+    // with bg-card when the table is rendered inside a Card.
+    <thead ref={ref} className={cn('sticky top-0 z-10 bg-background [&_tr]:border-b [&_tr]:border-border', className)} {...props} />
   ),
 );
 TableHeader.displayName = 'TableHeader';
@@ -36,7 +38,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        'border-b border-border transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted',
+        'border-b border-border/60 transition-colors last:border-0 hover:bg-muted/30 data-[state=selected]:bg-muted/50',
         className,
       )}
       {...props}
@@ -50,7 +52,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
     <th
       ref={ref}
       className={cn(
-        'h-10 px-3 text-left align-middle text-xs font-medium uppercase tracking-wide text-muted-foreground [&:has([role=checkbox])]:pr-0',
+        'h-11 whitespace-nowrap px-4 text-left align-middle text-xs font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0',
         className,
       )}
       {...props}
@@ -63,7 +65,7 @@ const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<
   ({ className, ...props }, ref) => (
     <td
       ref={ref}
-      className={cn('px-3 py-3 align-middle [&:has([role=checkbox])]:pr-0', className)}
+      className={cn('px-4 py-3 align-middle [&:has([role=checkbox])]:pr-0', className)}
       {...props}
     />
   ),

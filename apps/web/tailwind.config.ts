@@ -49,6 +49,10 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card) / <alpha-value>)',
           foreground: 'hsl(var(--card-foreground) / <alpha-value>)',
         },
+        popover: {
+          DEFAULT: 'hsl(var(--popover) / <alpha-value>)',
+          foreground: 'hsl(var(--popover-foreground) / <alpha-value>)',
+        },
         cyan: {
           DEFAULT: 'hsl(var(--cyan) / <alpha-value>)',
         },

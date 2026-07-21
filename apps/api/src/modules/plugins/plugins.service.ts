@@ -59,10 +59,13 @@ export class PluginsService {
         orderBy: { startedAt: 'desc' },
         take: 20,
       }),
-      this.prisma.finding.groupBy({
+      // Current issues attributed to this check, not every historical
+      // detection: a check that finds one real problem and is run fifty times
+      // should not report fifty findings.
+      this.prisma.securityIssue.groupBy({
         by: ['severity'],
         _count: { id: true },
-        where: { pluginId, assessment: { project: { userId } } },
+        where: { pluginId, project: { userId, isActive: true } },
       }),
     ]);
 
@@ -120,20 +123,24 @@ export class PluginsService {
     });
   }
 
-  // ── Historical findings from a specific plugin ────────────────────────────
+  // ── Issues detected by a specific check ───────────────────────────────────
 
-  async getFindings(pluginId: string, userId: string, limit = 50) {
-    return this.prisma.finding.findMany({
+  /**
+   * Persistent issues this check is responsible for.
+   *
+   * Returns issues rather than raw detections so the same vulnerability appears
+   * once regardless of how many scans found it.
+   */
+  async getIssues(pluginId: string, userId: string, limit = 50) {
+    return this.prisma.securityIssue.findMany({
       where: {
         pluginId,
-        assessment: { project: { userId } },
+        project: { userId, isActive: true },
       },
       include: {
-        assessment: {
-          select: { id: true, project: { select: { id: true, name: true } } },
-        },
+        project: { select: { id: true, name: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ severity: 'asc' }, { lastSeenAt: 'desc' }],
       take: limit,
     });
   }

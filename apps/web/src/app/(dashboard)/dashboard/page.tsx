@@ -13,14 +13,6 @@ import { FindingsSeverityChart, OwaspCoverageRadar, OWASP_CATEGORIES, SecuritySc
 import { RecentAssessmentsTable } from '@/components/dashboard/recent-assessments-table';
 import type { DashboardStats } from '@/types';
 
-const SEVERITIES = [
-  { key: 'critical', name: 'Critical' },
-  { key: 'high', name: 'High' },
-  { key: 'medium', name: 'Medium' },
-  { key: 'low', name: 'Low' },
-  { key: 'info', name: 'Informational' },
-] as const;
-
 function aggregateOwaspCoverage(stats?: DashboardStats) {
   const totals: Record<string, number> = {};
   const assessments = stats?.recentAssessments ?? [];
@@ -42,21 +34,23 @@ export default function DashboardPage() {
   if (isLoading) return <DashboardSkeleton />;
 
   const hasData = Boolean(stats?.totalAssessments);
-  const securityScore = stats?.avgSecurityScore ?? 0;
-  const severityData = SEVERITIES.map((item) => ({ ...item, value: stats?.findings?.[item.key] ?? 0 }));
+  // Null means no project has a computable score. Rendering it as 0 would
+  // claim the worst possible posture for a workspace that has simply not been
+  // scanned yet.
+  const securityScore = stats?.avgSecurityScore ?? null;
 
   return <PageContainer className="space-y-5 pb-10">
     <PageHeader title="Security Dashboard" description="Monitor your API security posture across all projects" className="mb-0" actions={<Button asChild><Link href="/projects/new"><IconPlus className="h-4 w-4" />New Project</Link></Button>} />
     {isError && <div role="alert" className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">Dashboard data could not be refreshed. Try again shortly.</div>}
     <section aria-label="Security metrics" className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-      <MetricCard label="Security Score" value={hasData ? String(securityScore) : '—'} suffix={hasData ? '/100' : undefined} icon={<IconShield className="h-4 w-4" />} tone="muted" description={hasData ? 'Average across all assessments' : 'No assessments yet'} />
+      <MetricCard label="Security Score" value={securityScore === null ? '—' : String(securityScore)} suffix={securityScore === null ? undefined : '/100'} icon={<IconShield className="h-4 w-4" />} tone="muted" description={hasData ? 'Average across all assessments' : 'No assessments yet'} />
       <MetricCard label="Critical Findings" value={String(stats?.findings?.critical ?? 0)} icon={<IconAlertTriangle className="h-4 w-4" />} tone="muted" description="Require immediate attention" highlight={Boolean(stats?.findings?.critical)} />
       <MetricCard label="Projects" value={String(stats?.totalProjects ?? 0)} icon={<IconFolder className="h-4 w-4" />} tone="muted" description="Active API projects" />
       <MetricCard label="Assessments" value={String(stats?.totalAssessments ?? 0)} icon={<IconActivity className="h-4 w-4" />} tone="muted" description="Completed security scans" />
     </section>
-    <section aria-label="Security analytics" className="grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.15fr)_minmax(0,1.15fr)]">
-      <SecurityScoreChart score={securityScore} hasData={hasData} />
-      <FindingsSeverityChart data={severityData} />
+    <section aria-label="Security analytics" className="grid auto-rows-fr grid-cols-1 items-stretch gap-5 md:grid-cols-2 xl:grid-cols-3">
+      <SecurityScoreChart trend={stats?.scoreTrend ?? []} yearAverage={stats?.scoreTrendAverage ?? null} />
+      <FindingsSeverityChart trend={stats?.findingsTrend ?? []} previousTotal={stats?.findingsTrendPreviousTotal ?? 0} />
       <OwaspCoverageRadar coverage={aggregateOwaspCoverage(stats)} />
     </section>
     <RecentAssessmentsTable assessments={stats?.recentAssessments ?? []} />

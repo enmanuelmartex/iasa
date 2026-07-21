@@ -72,6 +72,10 @@ services:
       MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-3}
       REPORTS_DIR: /app/reports
       DOCKER_ENV: "true"
+      # Required for the localhost → host.docker.internal rewrite to be usable:
+      # host-gateway resolves to a private IP, so the SSRF check rejects it
+      # unless private targets are allowed. Set false for hosted deployments.
+      ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
       # Better Auth — generate a strong secret: openssl rand -base64 32
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-iasa-dev-secret-change-in-production-min-32-chars!!}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:4000}
